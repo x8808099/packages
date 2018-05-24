@@ -13,13 +13,14 @@ bpf2matVolts([drIn bpf_name],'',0,doTetrodeData,doTetrodeTS,doPosition,0,0);
 %%
 bpf_name = 'M16_2.bpf';
 load(['DATA/' bpf_name(1:end-4) '.mat']);
-%%
-iCh = 1;
 
 nchs=4;
-spl = tetrodeSamplesPerBlock;
+sl = tetrodeSamplesPerBlock;
 Chs = unique(tetrodeChannel)' 
 Data = reshape(tetrodeData,nchs,spl,[]);
+
+%%
+iCh = 7;
 idxs = tetrodeChannel==Chs(iCh);
 T = tetrodeTimestamp(idxs);
 U = tetrodeUnit(idxs);
@@ -131,7 +132,7 @@ end
 % -- plot place fields
 rowNeed = ceil(sum(lmap(:,1)>0)/pl2);
 DT = A(:,:,1); %imgaussfilt(A(:,:,1),sigma);
-subplot(pl1,pl2,(Wc+1)*rowNeed*pl2);
+subplot(pl1,pl2,(4)*rowNeed*pl2);
 
 imagesc(DT);ax=gca;ax.CLim = 0.8*ax.CLim;axis off;%axis equal;
 title([num2str(round(roomTimeStamps(end-1)/10000)) 's'],'color','y');

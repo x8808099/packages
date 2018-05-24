@@ -54,19 +54,18 @@ void merge_across_channels(QVector<double>& times, QVector<int>& labels, QVector
 
     QVector<int> central_channels_for_clusters;
     for (int k = 1; k <= K; k++) {
-        QVector<bigint>* inds1 = &all_label_inds[k - 1];
-        if (!inds1->isEmpty()) {
-            int chan = central_channels[(*inds1)[0]]; 
-            //the peak channel should be the same for all events with this labels, so we just need to look at the first one
-            central_channels_for_clusters << chan;
-        }
-        else {
-            central_channels_for_clusters << 0;
-        }
+         QVector<bigint>* inds1 = &all_label_inds[k - 1];
+         if (!inds1->isEmpty()) {
+             int chan = central_channels[(*inds1)[0]]; 
+             //the peak channel should be the same for all events with this labels, so we just need to look at the first one
+             central_channels_for_clusters << chan;
+         }
+         else {
+             central_channels_for_clusters << 0;
+         }
     }
 
     for (int k1 = 0; k1 < K; k1++) {
-        //QVector<int> inds1 = find_label_inds(labels, k1 + 1);
         QVector<bigint>* inds1 = &all_label_inds[k1];
         if (!inds1->isEmpty()) {
             for (int k2 = 0; k2 < K; k2++) {
@@ -74,20 +73,18 @@ void merge_across_channels(QVector<double>& times, QVector<int>& labels, QVector
                 if (!inds2->isEmpty()) {
                     int central_chan1 = central_channels_for_clusters[k1];
                     int central_chan2 = central_channels_for_clusters[k2];
-                    if (central_chan1 != central_chan2) { 
-                    //only attempt to merge if the peak channels are different -- that's why it's called "merge_across_channels"
-                        double val11 = channel_peaks.value(central_chan1 - 1, k1);
-                        double val12 = channel_peaks.value(central_chan2 - 1, k1);
-                        double val21 = channel_peaks.value(central_chan1 - 1, k2);
-                        double val22 = channel_peaks.value(central_chan2 - 1, k2);
-                        if (peaks_are_within_range_to_consider(val11, val12, val21, val22, opts))
-                            candidate_pairs.setValue(1, k1, k2);
+                    if (central_chan1 != central_chan2) { //only attempt to merge if the peak channels are different -- that's why it's called "merge_across_channels"
+    //                     double val11 = channel_peaks.value(central_chan1 - 1, k1);
+    //                     double val12 = channel_peaks.value(central_chan2 - 1, k1);
+    //                     double val21 = channel_peaks.value(central_chan1 - 1, k2);
+    //                     double val22 = channel_peaks.value(central_chan2 - 1, k2);
+    //                     if (peaks_are_within_range_to_consider(val11, val12, val21, val22, opts))
+                         candidate_pairs.setValue(1, k1, k2);
                     }
                 }
             }
         }
     }
-    //candidate_pairs.write32("/home/magland/tmp/candidate_pairs.mda");
 
     //sort by largest peak so we can go through in order
     QVector<double> abs_peaks_on_own_channels;
@@ -114,10 +111,8 @@ void merge_across_channels(QVector<double>& times, QVector<int>& labels, QVector
             for (int a = 0; a < inds_k->count(); a++) {
                 times_k << times[(*inds_k)[a]];
             }
-
             for (int ik2 = 0; ik2 < K; ik2++) {               
-                if (candidate_pairs.value(ik, ik2)) {
-                    //printf("Merge candidate pair: %d,%d\n", ik + 1, ik2 + 1);
+                if ( (to_use) && (candidate_pairs.value(ik, ik2)) ) { // candidate pair: ik + 1, ik2 + 1
                     if (clusters_to_use[ik2]) { //we are already using the other one
                         QVector<double> other_times;
                         Mda32 template2;
@@ -133,19 +128,11 @@ void merge_across_channels(QVector<double>& times, QVector<int>& labels, QVector
                 }
             }
         }
-        qDebug().noquote() << QString("Use cluster%1(%2): %3").arg(ik + 1).arg(abs_peaks_on_own_channels[ik]).arg(to_use);
-        // if (other_times.count() > 0) {
-        //     if (cluster_is_already_being_used(times_k, other_times, ik + 1, opts)) {
-        //         // qDebug().noquote() << QString("Cluster %1 is already being used %2 (discarding)").arg(ik + 1).arg;
-        //         to_use = false;
-        //     }
-        // }
         if (to_use)
             clusters_to_use[ik] = true;
-        else {
-            clusters_to_use[ik] = false;
+        else
             num_removed++;
-        }
+        qDebug().noquote() << QString("Use cluster%1(%2): %3").arg(ik + 1).arg(abs_peaks_on_own_channels[ik]).arg(to_use);
     }
 
     QMap<int, int> label_map;
@@ -305,4 +292,3 @@ int get_optimal_time_shift_between_templates(const Mda32& template0, const Mda32
     }
     return best_dt;
 }
-

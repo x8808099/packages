@@ -30,10 +30,10 @@ QVector<double> detect_events(const QVector<double>& X, double detect_threshold,
     for (bigint n = 0; n < X.count(); n++) {
         double val=X[n];
         //double val = X[n] - mean;
-        //if (sign < 0)
-        //    val = -val;
-        //else if (sign == 0)
-        //    val = fabs(val);
+        if (sign < 0)
+            val = -val;
+        else if (sign == 0)
+            val = fabs(val);
         //if ( (val > threshold2) && (((n-880)%120) < 104) ) {
         if (val > threshold2) {
 	    timepoints_to_consider << n;
