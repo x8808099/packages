@@ -66,15 +66,16 @@ QMap<int, int> consolidate_clusters(QVector<double>& times, QVector<int>& labels
                     }
             }
             double noise_det_ratio = det_counts * 1.0 / timek.count();
-            printf("Noise detection ratio is %f \n", noise_det_ratio);
             if (noise_det_ratio<0.5) {
                 double noise_overlap = compute_noise_overlap(X, timek, opts);
-                printf("Overlap is %f \n", noise_overlap);
+                printf("Noise detection ratio: %f, overlap: %f \n", noise_det_ratio, noise_overlap);
                 if (noise_overlap<0.3) {
                     label_map[k] = knext;
                     knext++;
                 }
             }
+        else
+                printf("Noise detection ratio: %f \n", noise_det_ratio);
         } 
     }
     return label_map;

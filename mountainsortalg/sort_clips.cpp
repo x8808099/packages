@@ -94,7 +94,7 @@ QVector<int> sort_clips_subset(const Mda32& clips, const QVector<bigint>& indice
 
     bigint K0 = MLCompute::max(labels0);
     if (K0 <= 1) {  //only 1 cluster
-        qDebug().noquote() << QString("samples %1,%2,%3,%4,%5,%6,%7,%8,%9").arg(labels0[0]).arg(labels0[2]).arg(labels0[4]).arg(labels0[9]).arg(labels0[11]).arg(labels0[22]).arg(labels0[23]).arg(labels0[25]).arg(labels0[29]);
+        //qDebug().noquote() << QString("samples %1,%2,%3,%4,%5,%6,%7,%8,%9").arg(labels0[0]).arg(labels0[2]).arg(labels0[4]).arg(labels0[9]).arg(labels0[11]).arg(labels0[22]).arg(labels0[23]).arg(labels0[25]).arg(labels0[29]);
         return labels0;
     }
     else {

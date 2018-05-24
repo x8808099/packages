@@ -35,7 +35,7 @@ lmap = readmda('/Users/hupeiyao/Movies/PH/lmap.mda');
 % fets = readmda('/Users/hupeiyao/Movies/PH/fets.mda');
 
 % resc = 2; lmap(resc,1)=resc;
-% lmap(:,1)=lmap(:,2);
+% lmap(:,1) = lmap(:,2);
 % disc=6; lmap(disc,1)=0;
 % disc=7; lmap(disc,1)=0;
 % disc=3; lmap(disc,1)=0;
