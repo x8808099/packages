@@ -71,7 +71,7 @@ void NeighborhoodSorter::setMaxRAM(bigint max_ram_bytes)
     d->m_max_ram_bytes = max_ram_bytes;
 }
 
-void NeighborhoodSorter::addTimeChunk(const Mda32& X, const QList<int>& channels, bigint padding_left, bigint padding_right)
+void NeighborhoodSorter::addTimeChunk(bigint t, const Mda32& X, const QList<int>& channels, bigint padding_left, bigint padding_right)
 {
     d->m_M = channels.count();
     if (channels.count() == 0)
@@ -87,13 +87,16 @@ void NeighborhoodSorter::addTimeChunk(const Mda32& X, const QList<int>& channels
 
     QVector<double> times0 = detect_events(X0, d->m_opts.detect_threshold, d->m_opts.detect_interval, d->m_opts.detect_sign);
     QVector<double> times1; // only the times that fit within the proper time chunk (excluding padding)
+    int modding = d->m_opts.input_clip_size;
     times1.reserve(times0.count());
     for (bigint i = 0; i < times0.count(); i++) {
         bigint t0 = times0[i];
         if ((0 <= t0 - padding_left) && (t0 - padding_left < X.N2() - padding_left - padding_right)) {
-            if( (((t0 - padding_left)%120)<105) && (((t0 - padding_left)%120)>32) ){
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            if( ((t0 - padding_left)%modding < 108) && ((t0 - padding_left)%modding > 32) ){
                 times1 << times0[i];
             }
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
         }
     }
 
@@ -103,14 +106,14 @@ void NeighborhoodSorter::addTimeChunk(const Mda32& X, const QList<int>& channels
         Mda32 clip0;
         d->get_clip(clip0, X, channels, t0, T);
         clips0.setChunk(clip0, 0, 0, i);
-        d->m_times << t0 - padding_left;
+        d->m_times << t0 - padding_left + t;
     }
     d->m_accumulated_clips_buffer << clips0;
     if (d->size_of_accumulated_clips_buffer() > d->m_max_ram_bytes)
         d->clear_accumulated_clips_buffer();
 }
 
-void NeighborhoodSorter::sort(int num_threads, const Mda32& X_np, bigint t)
+void NeighborhoodSorter::sort(int num_threads)
 {
     int T = d->m_opts.clip_size;
 
@@ -162,14 +165,14 @@ void NeighborhoodSorter::sort(int num_threads, const Mda32& X_np, bigint t)
     d->m_labels = sort_clips(reduced_clips, ooo);
     qDebug().noquote() << QString("Sorted %1 clips and found %2 clusters").arg(reduced_clips.N3()).arg(MLCompute::max(d->m_labels));
 
+
     // Compute templates
     d->m_templates = d->compute_templates_from_clips(clips, d->m_labels, num_threads);
 
     // Consolidate clusters
     if (d->m_opts.consolidate_clusters) {
         Consolidate_clusters_opts oo;
-        oo.clip_size = T; 
-        QMap<int, int> label_map = consolidate_clusters(d->m_times, d->m_labels, d->m_templates, X_np, oo);
+        QMap<int, int> label_map = consolidate_clusters(d->m_templates, oo);
         QVector<bigint> inds_to_keep;
         inds_to_keep.reserve(d->m_labels.count());
         for (bigint i = 0; i < d->m_labels.count(); i++) {
@@ -190,10 +193,6 @@ void NeighborhoodSorter::sort(int num_threads, const Mda32& X_np, bigint t)
 
     // Compute templates
     d->m_templates = d->compute_templates_from_clips(clips, d->m_labels, num_threads);
-    // update time
-    for (bigint i = 0; i < d->m_times.count(); i++) {
-        d->m_times[i] = d->m_times[i] + t;
-    }
 }
 
 QVector<double> NeighborhoodSorter::times() const

@@ -43,15 +43,15 @@ def create_label_map(*, metrics, label_map_out, firing_rate_thresh = .05, isolat
 
     #Iterate through all clusters
     for idx in range(len(metrics_data['clusters'])):
-        if metrics_data['clusters'][idx]['metrics']['firing_rate'] < firing_rate_thresh or \
+        if metrics_data['clusters'][idx]['metrics']['rate'] < firing_rate_thresh or \
             metrics_data['clusters'][idx]['metrics']['isolation'] < isolation_thresh or \
             metrics_data['clusters'][idx]['metrics']['noise_overlap'] > noise_overlap_thresh or \
             metrics_data['clusters'][idx]['metrics']['peak_snr'] < peak_snr_thresh:
             #Map to zero (mask out)
             label_map.append([0,metrics_data['clusters'][idx]['label']])
-        elif metrics_data['clusters'][idx]['metrics']['bursting_parent']: #Check if burst parent exists
-            label_map.append([metrics_data['clusters'][idx]['metrics']['bursting_parent'],
-                              metrics_data['clusters'][idx]['label']])
+        #elif metrics_data['clusters'][idx]['metrics']['bursting_parent']: #Check if burst parent exists
+        #    label_map.append([metrics_data['clusters'][idx]['metrics']['bursting_parent'],
+        #                      metrics_data['clusters'][idx]['label']])
         else:
             label_map.append([metrics_data['clusters'][idx]['label'],
                               metrics_data['clusters'][idx]['label']]) # otherwise, map to itself!

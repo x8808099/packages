@@ -73,17 +73,17 @@ lmap(:,1) = lmap(:,2);
 
 figure;
 pl1 = 4; pl2 = 7;
-sorting = 0;
+sorting = 1;
 masking = 1;
 
 bS = 8;
-sigma = 1; % for smooting place field
+sigma = 1.5; % for smooting place field
 
 colormap hot;
 Sorter = {'M','W'};
 Color  = {'g','w'};
 
-for Wc = 0:0 % Wc = 0 to do MS
+for Wc = 1:1 % Wc = 0 to do MS
 if Wc
     keepCluster = U;
 else
@@ -181,10 +181,10 @@ for nplot = 1:size(A,3)-1
     ax=gca;
     C_Lim = ax.CLim;
     Title = [sprintf('%.2f',coh) '<' num2str(units(sid((nplot)))) '>' sprintf('%.1f',C_Lim(2)*10000)];
-    title([Title '-' num2str(sum(counts(nplot,:)))],'fontsize',13,'color',Color{Wc+1});
-    if coh>0.49
-        ax.Title.Color = 'y';
-    end
+    title([Title '-' num2str(sum(counts(nplot,:)))],'fontsize',12,'color',Color{Wc+1});
+%     if C_Lim(2)<1e-4
+%         ax.CLim = [0 1e-4];
+%     end
 end
 set(gcf,'Color',[0 0 0])
 

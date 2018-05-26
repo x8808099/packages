@@ -128,11 +128,15 @@ void merge_across_channels(QVector<double>& times, QVector<int>& labels, QVector
                 }
             }
         }
-        if (to_use)
+        if (to_use) {
             clusters_to_use[ik] = true;
+            qDebug().noquote() << QString("ACCEPT C%1 (%2) %3").arg(ik + 1).arg(times_k.count()).arg(abs_peaks_on_own_channels[ik]);
+        }
         else
+        {
             num_removed++;
-        qDebug().noquote() << QString("Use cluster%1(%2): %3").arg(ik + 1).arg(abs_peaks_on_own_channels[ik]).arg(to_use);
+            qDebug().noquote() << QString("DISCARD C%1 (%2) %3").arg(ik + 1).arg(times_k.count()).arg(abs_peaks_on_own_channels[ik]);
+        }
     }
 
     QMap<int, int> label_map;
@@ -263,7 +267,7 @@ bool cluster_is_already_being_used(const QVector<double>& times_in, const QVecto
             count++;
     }
     double frac = count * 1.0 / times.count();
-    qDebug().noquote() << QString("C%1(%2) in C%3(%4): %5").arg(c_id).arg(times.count()).arg(ref_id).arg(other_times.count()).arg(frac);
+    qDebug().noquote() << QString("C%1 in C%2(%3): %4").arg(c_id).arg(ref_id).arg(other_times.count()).arg(frac);
     if (frac >= opts.event_fraction_threshold) {
         //qDebug().noquote() << counts.mid(best_t - max_dt, max_dt * 2 + 1);
         return true;

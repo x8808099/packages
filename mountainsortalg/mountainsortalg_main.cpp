@@ -35,11 +35,16 @@ QJsonObject get_spec()
         X.addOutput("firings_out","Firings array (times/labels)");
         X.addOptionalParameter("adjacency_radius", "Radius of local sorting neighborhood, corresponding to the geometry file. 0 means each channel is sorted independently. -1 means all channels are included in every neighborhood.", -1);
         X.addOptionalParameter("consolidate_clusters", "", "true");
-        X.addOptionalParameter("consolidation_factor", "", 0.9);
-        X.addOptionalParameter("clip_size", "", 50);
-        X.addOptionalParameter("detect_interval", "", 10);
+        X.addOptionalParameter("consolidation_factor", "", 0.99);
+        X.addOptionalParameter("clip_size", "", 60);
+        X.addOptionalParameter("detect_interval", "", 30);
         X.addOptionalParameter("detect_threshold", "", 3);
-        X.addOptionalParameter("detect_sign", "", 0);
+        X.addOptionalParameter("detect_sign", "", 1);
+        X.addOptionalParameter("input_clip_size","",120);
+        X.addOptionalParameter("noise_detect_time","",48);
+        X.addOptionalParameter("detect_time_discard_thresh","",0.5);
+        X.addOptionalParameter("noise_overlap_discard_thresh","",0.15);
+        X.addOptionalParameter("event_fraction_threshold","",0.3);
         X.addOptionalParameter("merge_across_channels", "", "true");
         X.addOptionalParameter("fit_stage", "", "true");
         X.addOptionalParameter("t1", "Start timepoint to do the sorting (default 0 means start at beginning)", 0);
@@ -88,19 +93,30 @@ int main(int argc, char* argv[])
         QString timeseries = CLP.named_parameters["timeseries"].toString();
         QString geom = CLP.named_parameters["geom"].toString();
         QString firings_out = CLP.named_parameters["firings_out"].toString();
+        QString temp_path = CLP.named_parameters.value("_tempdir").toString();
+
         P_mountainsort3_opts opts;
         opts.adjacency_radius = CLP.named_parameters.value("adjacency_radius").toDouble();
-        opts.consolidate_clusters = (CLP.named_parameters.value("consolidate_clusters").toString() == "true");
+
         opts.consolidation_factor = CLP.named_parameters.value("consolidation_factor").toDouble();
-        opts.clip_size = CLP.named_parameters.value("clip_size").toDouble();
-        opts.detect_interval = CLP.named_parameters.value("detect_interval").toDouble();
-        opts.detect_threshold = CLP.named_parameters.value("detect_threshold").toDouble();
-        opts.detect_sign = CLP.named_parameters.value("detect_sign").toInt();
+        opts.consolidate_clusters = (CLP.named_parameters.value("consolidate_clusters").toString() == "true");
         opts.merge_across_channels = (CLP.named_parameters.value("merge_across_channels").toString() == "true");
         opts.fit_stage = (CLP.named_parameters.value("fit_stage").toString() == "true");
+
+        opts.clip_size = CLP.named_parameters.value("clip_size").toDouble();
+        opts.detect_sign = CLP.named_parameters.value("detect_sign").toInt();
+        opts.detect_interval = CLP.named_parameters.value("detect_interval").toDouble();
+        opts.detect_threshold = CLP.named_parameters.value("detect_threshold").toDouble();
+
+        opts.input_clip_size = CLP.named_parameters.value("input_clip_size").toDouble();
+        opts.noise_detect_time = CLP.named_parameters.value("noise_detect_time").toDouble();
+        opts.detect_time_discard_thresh = CLP.named_parameters.value("detect_time_discard_thresh").toDouble();
+        opts.noise_overlap_discard_thresh = CLP.named_parameters.value("noise_overlap_discard_thresh").toDouble(); 
+        opts.event_fraction_threshold = CLP.named_parameters.value("event_fraction_threshold").toDouble();
+        
         opts.t1 = CLP.named_parameters.value("t1","-1").toDouble();
         opts.t2 = CLP.named_parameters.value("t2","-1").toDouble();
-        QString temp_path = CLP.named_parameters.value("_tempdir").toString();
+
         if (temp_path.isEmpty()) {
             temp_path = QDir::currentPath();
         }
@@ -111,17 +127,8 @@ int main(int argc, char* argv[])
             qWarning() << "WARNING! Please use mountainsortalg.ms3alg rather than mountainsortalg.ms3. Right now they are equivalent, but the latter will be removed in the future.";
             qWarning() << "********************************************************************************************************************************";
             qWarning() << "";
-            qWarning() << "";
         }
     }
-    /*
-    else if (arg1 == "mountainsort.run_metrics_script") {
-        QString metrics = CLP.named_parameters["metrics"].toString();
-        QString script = CLP.named_parameters["script"].toString();
-        QString metrics_out = CLP.named_parameters["metrics_out"].toString();
-        ret = p_run_metrics_script(metrics, script, metrics_out);
-    }
-    */
     else {
         qWarning() << "Unexpected processor name: " + arg1;
         return -1;

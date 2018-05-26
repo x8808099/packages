@@ -22,6 +22,7 @@ HEADERS += \
     compute_templates_0.h \
     consolidate_clusters.h \
     detect_events.h \
+    discard_noisy_clusters.h\
     fit_stage.h \
     globaltemplatecomputer.h \
     kdtree.h \
@@ -55,6 +56,7 @@ SOURCES += \
     compute_templates_0.cpp \
     consolidate_clusters.cpp \
     detect_events.cpp \
+    discard_noisy_clusters.cpp\
     fit_stage.cpp \
     globaltemplatecomputer.cpp \
     kdtree.cpp \
