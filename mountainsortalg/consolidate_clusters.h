@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+	
 #ifndef CONSOLIDATE_CLUSTERS_H
 #define CONSOLIDATE_CLUSTERS_H
 
@@ -21,15 +22,9 @@
 
 struct Consolidate_clusters_opts {
     double consolidation_factor = 0.95;
-    int clip_size = 60;
-    int max_num_to_use = 500;
-    int min_num_to_use = 100;
-    int num_features = 10;
-    int K_nearest = 6;
-    int exhaustive_search_num = 100;
 };
 
-QMap<int, int> consolidate_clusters(QVector<double>& times, QVector<int>& labels, const Mda32& templates, const Mda32& X, Consolidate_clusters_opts opts);
+QMap<int, int> consolidate_clusters(const Mda32& templates, Consolidate_clusters_opts opts);
 
 #endif // CONSOLIDATE_CLUSTERS_H
 

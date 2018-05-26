@@ -13,41 +13,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef P_MOUNTAINSORT3_H
-#define P_MOUNTAINSORT3_H
+#ifndef DISCARD_NOISY_CLUSTERS_H
+#define DISCARD_NOISY_CLUSTERS_H
 
-#include <QString>
-typedef int64_t bigint;
+#include <QVector>
+#include "mda32.h"
+#include "diskreadmda32.h"
 
-struct P_mountainsort3_opts {
-    double adjacency_radius = -1;
+struct Discard_noisy_clusters_opts {
     int clip_size = 60;
-
-    double detect_threshold = 3;
-    int detect_interval = 30;
-    int detect_sign = 0;
-
+    int max_num_to_use = 500;
+    int min_num_to_use = 100;
     int num_features = 10;
-    int num_features_per_channel = 10;
-    bigint max_pca_samples = 10000;
-
-    bool consolidate_clusters = true;
-    double consolidation_factor = 0.99;
-
-    bool merge_across_channels = true;
-    double event_fraction_threshold = 0.3;
-
+    int K_nearest = 6;
+    int exhaustive_search_num = 100;
     int input_clip_size = 120; 
     int noise_detect_time = 48;
     double detect_time_discard_thresh = 0.5;
-    double noise_overlap_discard_thresh = 0.15;
-
-    bool fit_stage = true;
-
-    double t1 = -1;
-    double t2 = -1;
+    double noise_overlap_discard_thresh = 0.1;
 };
 
-bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QString temp_path, const P_mountainsort3_opts& opts);
+void discard_noisy_clusters(QVector<double>& times, QVector<int>& labels, QVector<int>& central_channels, Mda32& templates, const DiskReadMda32& X, Discard_noisy_clusters_opts opts);
 
-#endif // P_MOUNTAINSORT3_H
+#endif //DISCARD_NOISY_CLUSTERS_H
+

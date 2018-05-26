@@ -84,8 +84,8 @@ QJsonObject get_cluster_metrics(const DiskReadMda32& X, const QVector<double>& t
     }
     metrics["t1_sec"] = t1_sec;
     metrics["t2_sec"] = t2_sec;
-    metrics["dur_sec"] = dur_sec;
-    metrics["firing_rate"] = firing_rate;
+    metrics["ts_sec"] = dur_sec;
+    metrics["rate"] = firing_rate;
 
     QJsonObject obj;
     obj["label"] = (double)k;

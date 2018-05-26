@@ -200,7 +200,7 @@ bool p_isolation_metrics(QStringList timeseries_list, QString firings_path, QStr
         QJsonObject tmp;
         tmp["label"] = k;
         cluster_data[k].cluster_metrics["isolation"] = cluster_data[k].isolation;
-        cluster_data[k].cluster_metrics["overlap_cluster"] = cluster_data[k].overlap_cluster;
+        cluster_data[k].cluster_metrics["o_c"] = cluster_data[k].overlap_cluster;
         if (opts.compute_bursting_parents)
             cluster_data[k].cluster_metrics["bursting_parent"] = cluster_data[k].bursting_parent;
         tmp["metrics"] = cluster_data[k].cluster_metrics;
@@ -609,7 +609,8 @@ QJsonObject get_cluster_metrics(const DiskReadMda32& X, const QVector<double>& t
     {
         double min0 = template_k.minimum();
         double max0 = template_k.maximum();
-        ret["peak_amp"] = qMax(qAbs(min0), qAbs(max0));
+        //ret["peak_amp"] = qMax(qAbs(min0), qAbs(max0));
+        ret["amplitude"] = max0; // also change below in snr.
     }
     {
         double min0 = stdev_k.minimum();
@@ -618,7 +619,7 @@ QJsonObject get_cluster_metrics(const DiskReadMda32& X, const QVector<double>& t
     }
     {
         if (ret["peak_noise"].toDouble()) {
-            ret["peak_snr"] = ret["peak_amp"].toDouble() / ret["peak_noise"].toDouble();
+            ret["peak_snr"] = ret["amplitude"].toDouble() / ret["peak_noise"].toDouble();
         }
         else {
             ret["peak_snr"] = 0;

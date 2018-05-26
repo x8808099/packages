@@ -23,6 +23,7 @@
 #include "omp.h"
 #include "neighborhoodsorter.h"
 #include "get_sort_indices.h"
+#include "discard_noisy_clusters.h"
 #include "merge_across_channels.h"
 #include "globaltemplatecomputer.h"
 #include "fit_stage.h"
@@ -83,7 +84,7 @@ struct ProgressReporter {
         if (m_total_expected_bytes_to_process) {
             status = QString("%1%").arg(m_bytes_processed * 100.0 / m_total_expected_bytes_to_process);
         }
-        qDebug().noquote() << QString("Processed %2 MB in %3 sec (%4 MB/sec): Total %5 MB [%1] (%6)...").arg(m_processing_step_name).arg(mb).arg(elapsed_sec).arg(mb / elapsed_sec).arg(m_bytes_processed / 1e6).arg(status);
+        //qDebug().noquote() << QString("Processed %2 MB in %3 sec (%4 MB/sec): Total %5 MB [%1] (%6)...").arg(m_processing_step_name).arg(mb).arg(elapsed_sec).arg(mb / elapsed_sec).arg(m_bytes_processed / 1e6).arg(status);
         m_progress_timer.restart();
     }
     void addBytesRead(double bytes)
@@ -92,7 +93,7 @@ struct ProgressReporter {
         double mb = bytes / 1e6;
         m_read_time_sec += elapsed_sec;
         m_bytes_read += bytes;
-        qDebug().noquote() << QString("Read %2 MB in %3 sec (%4 MB/sec): Total %5 MB [%1]...").arg(m_processing_step_name).arg(mb).arg(elapsed_sec).arg(mb / elapsed_sec).arg(m_bytes_read / 1e6);
+        //qDebug().noquote() << QString("Read %2 MB in %3 sec (%4 MB/sec): Total %5 MB [%1]...").arg(m_processing_step_name).arg(mb).arg(elapsed_sec).arg(mb / elapsed_sec).arg(m_bytes_read / 1e6);
         m_progress_timer.restart();
     }
 
@@ -107,8 +108,8 @@ struct ProgressReporter {
     void printSummaryText()
     {
         qDebug().noquote() << "";
-        qDebug().noquote() << m_summary_text;
-        qDebug().noquote() << "";
+        //qDebug().noquote() << m_summary_text;
+        //qDebug().noquote() << "";
     }
 
 private:
@@ -186,15 +187,13 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Read data and add to neighborhood sorters
     PR.startProcessingStep("Read data and add to neighborhood sorters", M * N * sizeof(float));
     time_chunk_infos = get_time_chunk_infos(M, N, neighborhood_batches.count(), 1);
+    qDebug().noquote() << QString("Number of time chunks is: %1").arg(time_chunk_infos.count());
     for (bigint i = 0; i < time_chunk_infos.count(); i++) {
         TimeChunkInfo TCI = time_chunk_infos[i];
         Mda32 time_chunk;
         X.readChunk(time_chunk, 0, t_start + TCI.t1 - TCI.t_padding, M, TCI.size + 2 * TCI.t_padding);
-        Mda32 time_chunk_np;
-        time_chunk.getChunk(time_chunk_np, 0, TCI.t_padding, M, TCI.size + TCI.t_padding);
         PR.addBytesRead(time_chunk.totalSize() * sizeof(float));
         for (int j = 0; j < neighborhood_batches.count(); j++) {
             QList<int> neighborhoods = neighborhood_batches[j];
@@ -207,8 +206,7 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
                     m = neighborhoods[k]; //I don't know why this needs to be in a critical section
                 }
                 //extract_channels(neighborhood_time_chunk, time_chunk, neighborhood_channels[m]);
-                neighborhood_sorters[m]->addTimeChunk(time_chunk, neighborhood_channels[m], TCI.t_padding, TCI.t_padding);
-                neighborhood_sorters[m]->sort(num_threads_within_neighborhoods, time_chunk_np, TCI.t1);
+                neighborhood_sorters[m]->addTimeChunk(TCI.t1, time_chunk, neighborhood_channels[m], TCI.t_padding, TCI.t_padding);
 #pragma omp critical(a1)
                 {
                     bytes0 += time_chunk.N2() * sizeof(float);
@@ -220,7 +218,29 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
     PR.endProcessingStep();
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Collect the events and sort them by time
+    PR.startProcessingStep("Sort in each neighborhood", M * N * sizeof(float));
+    for (int j = 0; j < neighborhood_batches.count(); j++) {
+        qDebug().noquote() << QString("Sorting batch %1 of %2...").arg(j+1).arg(neighborhood_batches.count());
+        QList<int> neighborhoods = neighborhood_batches[j];
+        double bytes0 = 0;
+#pragma omp parallel for num_threads(num_simultaneous_neighborhoods)
+        for (int k = 0; k < neighborhoods.count(); k++) {
+            int m;
+#pragma omp critical(m2)
+            {
+                m = neighborhoods[k]; //I don't know why this needs to be in a critical section
+            }
+            neighborhood_sorters[m]->sort(num_threads_within_neighborhoods);
+#pragma omp critical(a1)
+            {
+                bytes0 += N * sizeof(float);
+            }
+        }
+        PR.addBytesProcessed(bytes0);
+    }
+	PR.endProcessingStep();
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////
     PR.startProcessingStep("Collect events and sort them by time");
     QVector<double> times;
     QVector<int> labels;
@@ -245,7 +265,6 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
     qDeleteAll(neighborhood_sorters);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Compute global templates
     PR.startProcessingStep("Compute global templates", M * N * sizeof(float));
     time_chunk_infos = get_time_chunk_infos(M, N, 1, 1);
     Mda32 templates;
@@ -265,41 +284,27 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
         templates = GTC.templates();
     }
     PR.endProcessingStep();
-
+	
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Merge across channels
-    if (opts.merge_across_channels) {
-        PR.startProcessingStep("Merge across channels");
-        {
-            Merge_across_channels_opts oo;
-            oo.clip_size = opts.clip_size;
-            merge_across_channels(times, labels, central_channels, templates, oo);
-        }
-        PR.endProcessingStep();
-    }
-
-    /*
-    ///////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Compute global templates
-    PR.startProcessingStep("Compute global templates");
-    time_chunk_infos = get_time_chunk_infos(M, N, 1, 1);
+    PR.startProcessingStep("Discard noisy and redundant clusters");
     {
-        GlobalTemplateComputer GTC;
-        GTC.setNumThreads(tot_threads);
-        GTC.setClipSize(opts.clip_size);
-        GTC.setTimesLabels(times, labels);
-        for (bigint i = 0; i < time_chunk_infos.count(); i++) {
-            TimeChunkInfo TCI = time_chunk_infos[i];
-            Mda32 time_chunk;
-            X.readChunk(time_chunk, 0, t_start + TCI.t1 - TCI.t_padding, M, TCI.size + 2 * TCI.t_padding);
-            PR.addBytesRead(time_chunk.totalSize() * sizeof(float));
-            GTC.processTimeChunk(TCI.t1,time_chunk, TCI.t_padding, TCI.t_padding);
-            PR.addBytesProcessed(time_chunk.totalSize() * sizeof(float));
+     
+        Discard_noisy_clusters_opts oo;
+        oo.clip_size = opts.clip_size;
+        oo.input_clip_size = opts.input_clip_size; 
+        oo.noise_detect_time = opts.noise_detect_time;
+        oo.detect_time_discard_thresh = opts.detect_time_discard_thresh;
+        oo.noise_overlap_discard_thresh = opts.noise_overlap_discard_thresh;
+        discard_noisy_clusters(times, labels, central_channels, templates, X, oo);  
+    
+        if (opts.merge_across_channels) {
+            Merge_across_channels_opts ooo;
+            ooo.clip_size = opts.clip_size;
+            ooo.event_fraction_threshold = opts.event_fraction_threshold;
+            merge_across_channels(times, labels, central_channels, templates, ooo);
         }
-        templates = GTC.templates();
     }
     PR.endProcessingStep();
-    */
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
     if (opts.fit_stage) {
@@ -333,98 +338,6 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
         central_channels = get_subarray(central_channels, event_inds_to_use);
         PR.endProcessingStep();
     }
-
-    /*
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    //// FIT STAGE
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    {
-        qDebug().noquote() << "******* Fit stage...";
-        QTime timer;
-        timer.start();
-        QTime progress_timer;
-        progress_timer.start();
-        int num_time_chunks_read = 0;
-
-        QVector<bigint> inds_to_use;
-
-        QTime timerA;
-        timerA.start();
-        int num_time_threads=1;
-        int chunk_overlap_size=1000;
-        int progress_msec=2000;
-        for (int it = 0; it < time_chunk_infos.count(); it += num_time_threads) {
-            QList<TimeChunkInfo> infos = time_chunk_infos.mid(it, num_time_threads);
-            QVector<Mda32> time_chunks(infos.count());
-            double num_bytes_read = 0;
-            for (int j = 0; j < infos.count(); j++) {
-                TimeChunkInfo TCI = infos[j];
-                X.readChunk(time_chunks[j], 0, t_start + TCI.t1 - TCI.t_padding, M, TCI.size + 2 * TCI.t_padding);
-                num_time_chunks_read++;
-                num_bytes_read += time_chunks[j].totalSize() * 4;
-            }
-            {
-                double elapsed_sec = timerA.elapsed() * 1.0 / 1000;
-                qDebug().noquote() << QString("Elapsed for reading: %1 (%2 MB/sec)").arg(timerA.restart()).arg(num_bytes_read / 1e6 / (elapsed_sec));
-            }
-#pragma omp parallel for
-            for (int j = 0; j < infos.count(); j++) {
-                TimeChunkInfo TCI = infos[j];
-                Mda32 time_chunk = time_chunks[j];
-
-                QVector<bigint> local_inds;
-                QVector<double> local_times;
-                QVector<int> local_labels;
-
-                bigint ii = 0;
-                while ((ii < times.count()) && (times[ii] < TCI.t1))
-                    ii++;
-                while ((ii < times.count()) && (times[ii] < TCI.t1 + TCI.size)) {
-                    local_inds << ii;
-                    local_times << times[ii] - TCI.t1 + chunk_overlap_size;
-                    local_labels << labels[ii];
-                    ii++;
-                }
-                Fit_stage_opts oo;
-                QVector<bigint> local_inds_to_use = fit_stage(time_chunk, local_times, local_labels, templates, oo);
-#pragma omp critical(fit_stage_set_inds_to_use1)
-                {
-                    for (bigint a = 0; a < local_inds_to_use.count(); a++) {
-                        inds_to_use << local_inds[local_inds_to_use[a]];
-                    }
-                }
-            }
-            {
-                double elapsed_sec = timerA.elapsed() * 1.0 / 1000;
-                qDebug().noquote() << QString("Elapsed for fit stage: %1 (%2 MB/sec)").arg(timerA.restart()).arg(num_bytes_read / 1e6 / (elapsed_sec));
-            }
-            if (progress_timer.elapsed() > progress_msec) {
-                qDebug().noquote() << QString("Fit stage: Processed %1 time chunks of %2...").arg(num_time_chunks_read).arg(time_chunk_infos.count());
-                progress_timer.restart();
-            }
-        }
-
-        qSort(inds_to_use);
-        qDebug().noquote() << QString("Fit stage: Using %1 of %2 events").arg(inds_to_use.count()).arg(times.count());
-
-        QVector<double> times2(inds_to_use.count());
-        QVector<int> labels2(inds_to_use.count());
-        QVector<int> central_channels2(inds_to_use.count());
-        for (bigint a = 0; a < inds_to_use.count(); a++) {
-            times2[a] = times[inds_to_use[a]];
-            labels2[a] = labels[inds_to_use[a]];
-            central_channels2[a] = central_channels[inds_to_use[a]];
-        }
-        times = times2;
-        labels = labels2;
-        central_channels = central_channels2;
-
-        qDebug().noquote() << "Computing global templates...";
-        //templates = compute_templates_in_parallel(X, times, labels, opts.clip_size);
-
-        qDebug().noquote() << "Elapsed (Fit stage): " << timer.elapsed() * 1.0 / 1000;
-    }
-    */
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
     // Create and write firings output
@@ -469,19 +382,6 @@ QList<int> get_channels_from_geom(const Mda& geom, bigint m, double adjacency_ra
     return ret;
 }
 
-/*
-void extract_channels(Mda32& ret, const Mda32& X, const QList<int>& channels)
-{
-    bigint M2 = channels.count();
-    bigint N = X.N2();
-    ret.allocate(M2, N);
-    for (bigint t = 0; t < N; t++) {
-        for (bigint ii = 0; ii < M2; ii++) {
-            ret.set(X.get(channels[ii] - 1, t), ii, t);
-        }
-    }
-}
-*/
 
 QList<TimeChunkInfo> get_time_chunk_infos(bigint M, bigint N, int num_simultaneous, bigint min_num_chunks)
 {

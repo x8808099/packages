@@ -51,6 +51,7 @@ OBJECTS_DIR   = build/
 SOURCES       = compute_templates_0.cpp \
 		consolidate_clusters.cpp \
 		detect_events.cpp \
+		discard_noisy_clusters.cpp \
 		fit_stage.cpp \
 		globaltemplatecomputer.cpp \
 		kdtree.cpp \
@@ -80,6 +81,7 @@ SOURCES       = compute_templates_0.cpp \
 OBJECTS       = build/compute_templates_0.o \
 		build/consolidate_clusters.o \
 		build/detect_events.o \
+		build/discard_noisy_clusters.o \
 		build/fit_stage.o \
 		build/globaltemplatecomputer.o \
 		build/kdtree.o \
@@ -112,6 +114,7 @@ DIST          = ../../../../features/ml_functions.prf \
 		mountainsortalg.pro compute_templates_0.h \
 		consolidate_clusters.h \
 		detect_events.h \
+		discard_noisy_clusters.h \
 		fit_stage.h \
 		globaltemplatecomputer.h \
 		kdtree.h \
@@ -142,6 +145,7 @@ DIST          = ../../../../features/ml_functions.prf \
 		common/mlutil.h compute_templates_0.cpp \
 		consolidate_clusters.cpp \
 		detect_events.cpp \
+		discard_noisy_clusters.cpp \
 		fit_stage.cpp \
 		globaltemplatecomputer.cpp \
 		kdtree.cpp \
@@ -350,8 +354,8 @@ dist: distdir FORCE
 distdir: FORCE
 	@test -d $(DISTDIR) || mkdir -p $(DISTDIR)
 	$(COPY_FILE) --parents $(DIST) $(DISTDIR)/
-	$(COPY_FILE) --parents compute_templates_0.h consolidate_clusters.h detect_events.h fit_stage.h globaltemplatecomputer.h kdtree.h merge_across_channels.h neighborhoodsorter.h p_mountainsort3.h pca.h sort_clips.h mda/diskreadmda.h mda/diskreadmda32.h mda/diskwritemda.h mda/mda_p.h mda/mda.h mda/mda32.h mda/mdaio.h mda/mdareader_p.h mda/mdareader.h mda/usagetracking.h get_sort_indices.h isosplit5/isocut5.h isosplit5/isosplit5.h isosplit5/jisotonic5.h fitstagecomputer.h mountainsortalg_main.h common/mlcompute.h common/clparams.h common/textfile.h common/mlutil.h $(DISTDIR)/
-	$(COPY_FILE) --parents compute_templates_0.cpp consolidate_clusters.cpp detect_events.cpp fit_stage.cpp globaltemplatecomputer.cpp kdtree.cpp merge_across_channels.cpp neighborhoodsorter.cpp p_mountainsort3.cpp pca.cpp sort_clips.cpp mda/diskreadmda.cpp mda/diskreadmda32.cpp mda/diskwritemda.cpp mda/mda.cpp mda/mda32.cpp mda/mdaio.cpp mda/mdareader.cpp mda/usagetracking.cpp get_sort_indices.cpp isosplit5/isocut5.cpp isosplit5/isosplit5.cpp isosplit5/jisotonic5.cpp mountainsortalg_main.cpp fitstagecomputer.cpp common/mlcompute.cpp common/clparams.cpp common/textfile.cpp common/mlutil.cpp $(DISTDIR)/
+	$(COPY_FILE) --parents compute_templates_0.h consolidate_clusters.h detect_events.h discard_noisy_clusters.h fit_stage.h globaltemplatecomputer.h kdtree.h merge_across_channels.h neighborhoodsorter.h p_mountainsort3.h pca.h sort_clips.h mda/diskreadmda.h mda/diskreadmda32.h mda/diskwritemda.h mda/mda_p.h mda/mda.h mda/mda32.h mda/mdaio.h mda/mdareader_p.h mda/mdareader.h mda/usagetracking.h get_sort_indices.h isosplit5/isocut5.h isosplit5/isosplit5.h isosplit5/jisotonic5.h fitstagecomputer.h mountainsortalg_main.h common/mlcompute.h common/clparams.h common/textfile.h common/mlutil.h $(DISTDIR)/
+	$(COPY_FILE) --parents compute_templates_0.cpp consolidate_clusters.cpp detect_events.cpp discard_noisy_clusters.cpp fit_stage.cpp globaltemplatecomputer.cpp kdtree.cpp merge_across_channels.cpp neighborhoodsorter.cpp p_mountainsort3.cpp pca.cpp sort_clips.cpp mda/diskreadmda.cpp mda/diskreadmda32.cpp mda/diskwritemda.cpp mda/mda.cpp mda/mda32.cpp mda/mdaio.cpp mda/mdareader.cpp mda/usagetracking.cpp get_sort_indices.cpp isosplit5/isocut5.cpp isosplit5/isosplit5.cpp isosplit5/jisotonic5.cpp mountainsortalg_main.cpp fitstagecomputer.cpp common/mlcompute.cpp common/clparams.cpp common/textfile.cpp common/mlutil.cpp $(DISTDIR)/
 
 
 clean: compiler_clean 
@@ -402,17 +406,26 @@ build/compute_templates_0.o: compute_templates_0.cpp compute_templates_0.h \
 build/consolidate_clusters.o: consolidate_clusters.cpp consolidate_clusters.h \
 		mda/mda32.h \
 		common/mlcompute.h \
-		common/mlvector.h \
-		get_sort_indices.h \
-		pca.h \
-		mda/mda.h \
-		kdtree.h
+		common/mlvector.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o build/consolidate_clusters.o consolidate_clusters.cpp
 
 build/detect_events.o: detect_events.cpp detect_events.h \
 		common/mlcompute.h \
 		common/mlvector.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o build/detect_events.o detect_events.cpp
+
+build/discard_noisy_clusters.o: discard_noisy_clusters.cpp discard_noisy_clusters.h \
+		mda/mda32.h \
+		common/mlcompute.h \
+		common/mlvector.h \
+		get_sort_indices.h \
+		mda/diskreadmda.h \
+		mda/mda.h \
+		mda/mdaio.h \
+		mda/diskreadmda32.h \
+		pca.h \
+		kdtree.h
+	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o build/discard_noisy_clusters.o discard_noisy_clusters.cpp
 
 build/fit_stage.o: fit_stage.cpp fit_stage.h \
 		mda/mda32.h \
