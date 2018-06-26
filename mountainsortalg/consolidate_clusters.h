@@ -22,6 +22,7 @@
 
 struct Consolidate_clusters_opts {
     double consolidation_factor = 0.95;
+    int shifting = 6;
 };
 
 QMap<int, int> consolidate_clusters(const Mda32& templates, Consolidate_clusters_opts opts);

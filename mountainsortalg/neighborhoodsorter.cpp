@@ -71,7 +71,7 @@ void NeighborhoodSorter::setMaxRAM(bigint max_ram_bytes)
     d->m_max_ram_bytes = max_ram_bytes;
 }
 
-void NeighborhoodSorter::addTimeChunk(bigint t, const Mda32& X, const QList<int>& channels, bigint padding_left, bigint padding_right)
+void NeighborhoodSorter::addTimeChunk(bigint t, const Mda32& X, const QList<int>& channels, bigint chunk_padding)
 {
     d->m_M = channels.count();
     if (channels.count() == 0)
@@ -85,40 +85,44 @@ void NeighborhoodSorter::addTimeChunk(bigint t, const Mda32& X, const QList<int>
         X0 << X.value(central_channel - 1, i);
     }
 
-    QVector<double> times0 = detect_events(X0, d->m_opts.detect_threshold, d->m_opts.detect_interval, d->m_opts.detect_sign);
-    QVector<double> times1; // only the times that fit within the proper time chunk (excluding padding)
+// =========================================================================================================================================
+// py: add one condition to discard events detected in the begining and the end of the clips.
+
     int modding = d->m_opts.input_clip_size;
+    int shifting = d->m_opts.clip_shift;
+    int clip_padding = d->m_opts.clip_padding;
+
+    QVector<bigint> times0 = detect_events(X0, d->m_opts.detect_threshold, d->m_opts.detect_interval, d->m_opts.detect_sign); 
+    QVector<bigint> times1; // only the times that fit within the proper time chunk (excluding padding)
     times1.reserve(times0.count());
+
     for (bigint i = 0; i < times0.count(); i++) {
         bigint t0 = times0[i];
-        if ((0 <= t0 - padding_left) && (t0 - padding_left < X.N2() - padding_left - padding_right)) {
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-            if( ((t0 - padding_left)%modding < 108) && ((t0 - padding_left)%modding > 32) ){
-                times1 << times0[i];
-            }
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        if ((0 <= t0 - chunk_padding) && (t0 < X.N2() - chunk_padding)) { // py: at least 6(7) points to the left and 15 right of the peak
+            if( ((t0 - chunk_padding)%modding < (modding - 15)) && ((t0 - chunk_padding)%modding > (clip_padding + 6)) )
+                times1 << times0[i] + shifting;
         }
     }
+// =========================================================================================================================================
 
     Mda32 clips0(X.N1(), T, times1.count());
     for (bigint i = 0; i < times1.count(); i++) {
-        double t0 = times1[i];
+        bigint t0 = times1[i];
         Mda32 clip0;
         d->get_clip(clip0, X, channels, t0, T);
         clips0.setChunk(clip0, 0, 0, i);
-        d->m_times << t0 - padding_left + t;
+        d->m_times << t0 - chunk_padding + t;
     }
     d->m_accumulated_clips_buffer << clips0;
     if (d->size_of_accumulated_clips_buffer() > d->m_max_ram_bytes)
         d->clear_accumulated_clips_buffer();
 }
 
+// -- sorting and consolidation --
 void NeighborhoodSorter::sort(int num_threads)
 {
-    int T = d->m_opts.clip_size;
-
-    // get the clips
     Mda32 clips;
+    int T = d->m_opts.clip_size;
     clips.allocate(d->m_M, T, d->m_times.count());
 
     if (d->m_accumulated_clips.count() > 0) {
@@ -154,24 +158,24 @@ void NeighborhoodSorter::sort(int num_threads)
     qDeleteAll(d->m_accumulated_clips);
     d->m_accumulated_clips.clear();
 
-    // dimension reduce clips
+    // reduce the dimension of clips by PCA
     Mda32 reduced_clips;
     d->dimension_reduce_clips(reduced_clips, clips, d->m_opts.num_features_per_channel, d->m_opts.max_pca_samples);
 
-    // Sort
+    // Sorting
     Sort_clips_opts ooo;
     ooo.max_samples = d->m_opts.max_pca_samples;
     ooo.num_features = d->m_opts.num_features;
     d->m_labels = sort_clips(reduced_clips, ooo);
-    qDebug().noquote() << QString("Sorted %1 clips and found %2 clusters").arg(reduced_clips.N3()).arg(MLCompute::max(d->m_labels));
-
-
+    
     // Compute templates
     d->m_templates = d->compute_templates_from_clips(clips, d->m_labels, num_threads);
 
     // Consolidate clusters
     if (d->m_opts.consolidate_clusters) {
         Consolidate_clusters_opts oo;
+        oo.shifting = d->m_opts.clip_shift;
+        oo.consolidation_factor = d->m_opts.consolidation_factor;
         QMap<int, int> label_map = consolidate_clusters(d->m_templates, oo);
         QVector<bigint> inds_to_keep;
         inds_to_keep.reserve(d->m_labels.count());
@@ -180,7 +184,7 @@ void NeighborhoodSorter::sort(int num_threads)
             if ((k0 > 0) && (label_map[k0] > 0))
                 inds_to_keep << i;
         }
-        qDebug().noquote() << QString("Consolidate. Keeping %1 of %2 events").arg(inds_to_keep.count()).arg(d->m_labels.count());
+        qDebug().noquote() << QString("Found %1 clusters in %2 events, consolidated %3").arg(MLCompute::max(d->m_labels),2).arg(d->m_labels.count(),5).arg(inds_to_keep.count());
         d->m_times = d->get_subarray(d->m_times, inds_to_keep);
         d->m_labels = d->get_subarray(d->m_labels, inds_to_keep);
         clips = d->get_subclips(clips, inds_to_keep);
@@ -189,11 +193,14 @@ void NeighborhoodSorter::sort(int num_threads)
             int k0 = label_map[d->m_labels[i]];
             d->m_labels[i] = k0;
         }
+        d->m_templates = d->compute_templates_from_clips(clips, d->m_labels, num_threads);
     }
+    else
+        qDebug().noquote() << QString("Found %1 clusters in %2 events").arg(MLCompute::max(d->m_labels),2).arg(d->m_labels.count(),5);
 
-    // Compute templates
-    d->m_templates = d->compute_templates_from_clips(clips, d->m_labels, num_threads);
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 QVector<double> NeighborhoodSorter::times() const
 {
@@ -245,7 +252,7 @@ void NeighborhoodSorterPrivate::dimension_reduce_clips(Mda32& ret, const Mda32& 
     bigint L = clips.N3();
     const float* clips_ptr = clips.constDataPtr();
 
-    qDebug().noquote() << QString("Dimension reduce clips %1x%2x%3").arg(M).arg(T).arg(L);
+    //qDebug().noquote() << QString("Dimension reduce clips %1x%2x%3").arg(M).arg(T).arg(L);
 
     ret.allocate(M, num_features_per_channel, L);
     float* retptr = ret.dataPtr();

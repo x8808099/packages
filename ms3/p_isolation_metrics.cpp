@@ -35,9 +35,9 @@ using std::sqrt;
 namespace P_isolation_metrics {
 Mda32 extract_clips(const DiskReadMda32& X, const QVector<double>& times, int clip_size);
 Mda32 compute_mean_clip(const Mda32& clips);
-QJsonObject get_cluster_metrics(const DiskReadMda32& X, const QVector<double>& times, P_isolation_metrics_opts opts);
+QJsonObject get_cluster_metrics(const DiskReadMda32& X, const QVector<double>& times, const Mda32& noise_clips0, P_isolation_metrics_opts opts);
 QJsonObject get_pair_metrics(const DiskReadMda32& X, const QVector<double>& times_k1, const QVector<double>& times_k2, P_isolation_metrics_opts opts);
-QSet<QString> get_pairs_to_compare(const Mda32& templates0, bigint num_comparisons_per_cluster, const QList<int>& cluster_numbers, P_isolation_metrics_opts opts);
+QSet<QString> get_pairs_to_compare(const Mda32& templates0, const QList<int>& cluster_numbers, P_isolation_metrics_opts opts);
 double compute_overlap(const DiskReadMda32& X, const QVector<double>& times1, const QVector<double>& times2, P_isolation_metrics_opts opts);
 bool is_bursting_parent_candidate(const Mda32& template0, const Mda32& template0_parent, P_isolation_metrics_opts opts);
 bool test_bursting_timing(const QVector<double>& times, const QVector<double>& times_parent, P_isolation_metrics_opts opts, bool verbose);
@@ -59,12 +59,13 @@ bool p_isolation_metrics(QStringList timeseries_list, QString firings_path, QStr
 
     int M = X.N1();
     int T = opts.clip_size;
+    bigint L = firings.N2(); // total number of events 
+    bigint N_in =  X.N2() / opts.input_clip_size; // number of input clips
 
     QMap<int, P_isolation_metrics::ClusterData> cluster_data;
-
-    QVector<double> times(firings.N2());
-    QVector<int> labels(firings.N2());
-    for (bigint i = 0; i < firings.N2(); i++) {
+    QVector<double> times(L);
+    QVector<int> labels(L);
+    for (bigint i = 0; i < L; i++) {
         times[i] = firings.value(1, i);
         labels[i] = firings.value(2, i);
     }
@@ -78,6 +79,25 @@ bool p_isolation_metrics(QStringList timeseries_list, QString firings_path, QStr
     }
     QList<int> cluster_numbers = used_cluster_numbers_set.toList();
     qSort(cluster_numbers);
+    
+// -----------------------------------------------------------------------------------------------------------
+    qDebug().noquote() << "py: Constructing noise cluster...";
+    bigint num_noise_sample = 1000;
+    if (N_in <= num_noise_sample) {
+        qDebug().noquote() << "Not enough clips to construct noise cluster, aborting...";
+        abort();  
+    }
+    QVector<double> noise_times0;
+    double increment = N_in * 1.0 / num_noise_sample;
+    double j = increment / 2; // py: to be different from discarding stage
+    noise_times0 << (bigint)j * opts.input_clip_size - opts.clip_size/2 - 1;
+    for (int i = 1; i < num_noise_sample; i++) {
+            // bigint ni = ((bigint)j + 3) % N_in; 
+            noise_times0 <<  ((bigint)j + 1) * opts.input_clip_size - opts.clip_size/2 - 1;
+            j += increment;
+    }
+    Mda32 noise_clips0 = P_isolation_metrics::extract_clips(X, noise_times0, T);
+// -----------------------------------------------------------------------------------------------------------
 
     qDebug().noquote() << "Computing cluster metrics...";
 #pragma omp parallel for
@@ -97,7 +117,7 @@ bool p_isolation_metrics(QStringList timeseries_list, QString firings_path, QStr
             opts0 = opts;
         }
 
-        QJsonObject tmp = P_isolation_metrics::get_cluster_metrics(X0, times_k, opts0);
+        QJsonObject tmp = P_isolation_metrics::get_cluster_metrics(X0, times_k, noise_clips0, opts0);
 
 #pragma omp critical
         {
@@ -108,7 +128,6 @@ bool p_isolation_metrics(QStringList timeseries_list, QString firings_path, QStr
         }
     }
 
-    //compute templates
     qDebug().noquote() << "Computing templates...";
     Mda32 templates0;
     {
@@ -118,20 +137,17 @@ bool p_isolation_metrics(QStringList timeseries_list, QString firings_path, QStr
         for (bigint i = 0; i < firings.N2(); i++) {
             bigint label0 = (bigint)firings.value(2, i);
             if (cluster_numbers_set.contains(label0)) {
-                //inds << i;
                 times << firings.value(1, i);
                 labels << label0;
             }
         }
-
         //templates0 = compute_templates_0(X, times, labels, opts.clip_size);
         templates0 = compute_templates_in_parallel(X, times, labels, opts.clip_size);
     }
 
     qDebug().noquote() << "Determining pairs to compare...";
     QJsonArray cluster_pairs;
-    int num_comparisons_per_cluster = 10;
-    QSet<QString> pairs_to_compare = P_isolation_metrics::get_pairs_to_compare(templates0, num_comparisons_per_cluster, cluster_numbers, opts);
+    QSet<QString> pairs_to_compare = P_isolation_metrics::get_pairs_to_compare(templates0, cluster_numbers, opts);
     QList<QString> pairs_to_compare_list = pairs_to_compare.toList();
     qSort(pairs_to_compare_list);
 #pragma omp parallel for
@@ -256,7 +272,7 @@ Mda32 compute_noise_shape(const Mda32& noise_clips, const Mda32& template0)
     double best_val = 0;
     for (bigint t = 0; t < template0.N2(); t++) {
         for (bigint m = 0; m < template0.N1(); m++) {
-            double val = qAbs(template0.value(m, t));
+            double val = template0.value(m, t);
             if (val > best_val) {
                 best_val = val;
                 peak_channel = m;
@@ -309,71 +325,46 @@ void regress_out_noise_shape(Mda32& clips, const Mda32& shape)
     }
 }
 
-double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& times, P_isolation_metrics_opts opts, bool debug)
+double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& times, const Mda32& noise_clips0, P_isolation_metrics_opts opts, bool debug)
 {
-    QTime timer;
-    timer.start();
-
-    QList<bigint> elapsed_times;
-
+    int T = opts.clip_size;
+    bigint N_in =  X.N2() / opts.input_clip_size;
     bigint num_to_use = qMin(opts.max_num_to_use, times.count());
-    QVector<double> times_subset = sample(times, num_to_use);
 
+    QVector<double> times_subset = sample(times, num_to_use);
     QVector<bigint> labels_subset;
-    for (bigint i = 0; i < times_subset.count(); i++) {
+    for (bigint i = 0; i < times_subset.count(); i++)
         labels_subset << 1;
-    }
-    //equal amount of random clips
+    
     QVector<double> noise_times;
     QVector<bigint> noise_labels;
-    for (bigint i = 0; i < times_subset.count(); i++) {
-        noise_times << random_time(X.N2(), opts.clip_size);
-        noise_labels << 0;
+     for (bigint i = 0; i < times_subset.count(); i++) {
+         bigint ni = (bigint)(times_subset[i] + 0.5) / opts.input_clip_size + 100;
+         noise_times <<  (ni % N_in + 1) * opts.input_clip_size - opts.clip_size/2 - 1 ;
+         noise_labels << 0;
     }
 
-    elapsed_times << timer.restart();
-
+    QVector<bigint> all_labels = labels_subset;
     QVector<double> all_times = times_subset;
-    QVector<bigint> all_labels = labels_subset; //0 and 1
-
     all_times.append(noise_times);
     all_labels.append(noise_labels);
 
-    Mda32 clips = extract_clips(X, times_subset, opts.clip_size);
-    //Mda32 noise_clips = extract_clips(X, noise_times, opts.clip_size);
-    Mda32 all_clips = extract_clips(X, all_times, opts.clip_size);
-
-    elapsed_times << timer.restart();
-
-    //Mda32 noise_shape = compute_noise_shape(noise_clips, compute_mean_clip(clips));
-    Mda32 noise_shape = compute_noise_shape_2(X, compute_mean_clip(clips), opts);
-    elapsed_times << timer.restart();
-
-    if (debug)
-        noise_shape.write32("/tmp/noise_shape.mda");
-    if (debug)
-        all_clips.write32("/tmp/all_clips_before.mda");
+    Mda32 clips = extract_clips(X, times_subset, T);
+    Mda32 template1 = compute_mean_clip(clips);
+    Mda32 noise_shape = compute_noise_shape(noise_clips0, template1); 
+    
+    Mda32 all_clips = extract_clips(X, all_times, T);
     regress_out_noise_shape(all_clips, noise_shape);
-    elapsed_times << timer.restart();
-    if (debug)
-        all_clips.write32("/tmp/all_clips_after.mda");
-
-    elapsed_times << timer.restart();
 
     Mda32 all_clips_reshaped(all_clips.N1() * all_clips.N2(), all_clips.N3());
     bigint NNN = all_clips.totalSize();
-    for (bigint iii = 0; iii < NNN; iii++) {
+    for (bigint iii = 0; iii < NNN; iii++)
         all_clips_reshaped.set(all_clips.get(iii), iii);
-    }
 
-    elapsed_times << timer.restart();
-
-    bool subtract_mean = false;
     Mda32 FF;
     Mda32 CC, sigma;
+    bool subtract_mean = false;
     pca(CC, FF, sigma, all_clips_reshaped, opts.num_features, subtract_mean);
-
-    elapsed_times << timer.restart();
 
     KdTree tree;
     tree.create(FF);
@@ -381,9 +372,8 @@ double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& time
     double num_total = 0;
     for (bigint i = 0; i < FF.N2(); i++) {
         QVector<float> p;
-        for (bigint j = 0; j < FF.N1(); j++) {
+        for (bigint j = 0; j < FF.N1(); j++)
             p << FF.value(j, i);
-        }
         QList<int> indices = tree.findApproxKNearestNeighbors(FF, p, opts.K_nearest, opts.exhaustive_search_num);
         for (bigint a = 0; a < indices.count(); a++) {
             if (indices[a] != i) {
@@ -393,16 +383,103 @@ double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& time
             }
         }
     }
-
-    elapsed_times << timer.restart();
-
-    if (false)
-        qDebug().noquote() << "Elapsed times:" << elapsed_times;
-
     if (!num_total)
         return 0;
     return 1 - (num_correct * 1.0 / num_total);
 }
+    // {
+    // QTime timer;
+    // timer.start();
+
+    // QList<bigint> elapsed_times;
+
+    // bigint num_to_use = qMin(opts.max_num_to_use, times.count());
+    // QVector<double> times_subset = sample(times, num_to_use);
+
+    // QVector<bigint> labels_subset;
+    // for (bigint i = 0; i < times_subset.count(); i++) {
+    //     labels_subset << 1;
+    // }
+    // //equal amount of random clips
+    // QVector<double> noise_times;
+    // QVector<bigint> noise_labels;
+    // for (bigint i = 0; i < times_subset.count(); i++) {
+    //     noise_times << random_time(X.N2(), opts.clip_size);
+    //     noise_labels << 0;
+    // }
+
+    // elapsed_times << timer.restart();
+
+    // QVector<double> all_times = times_subset;
+    // QVector<bigint> all_labels = labels_subset; //0 and 1
+
+    // all_times.append(noise_times);
+    // all_labels.append(noise_labels);
+
+    // Mda32 clips = extract_clips(X, times_subset, opts.clip_size);
+    // //Mda32 noise_clips = extract_clips(X, noise_times, opts.clip_size);
+    // Mda32 all_clips = extract_clips(X, all_times, opts.clip_size);
+
+    // elapsed_times << timer.restart();
+
+    // //Mda32 noise_shape = compute_noise_shape(noise_clips, compute_mean_clip(clips));
+    // Mda32 noise_shape = compute_noise_shape_2(X, compute_mean_clip(clips), opts);
+    // elapsed_times << timer.restart();
+
+    // if (debug)
+    //     noise_shape.write32("/tmp/noise_shape.mda");
+    // if (debug)
+    //     all_clips.write32("/tmp/all_clips_before.mda");
+    // regress_out_noise_shape(all_clips, noise_shape);
+    // elapsed_times << timer.restart();
+    // if (debug)
+    //     all_clips.write32("/tmp/all_clips_after.mda");
+
+    // elapsed_times << timer.restart();
+
+    // Mda32 all_clips_reshaped(all_clips.N1() * all_clips.N2(), all_clips.N3());
+    // bigint NNN = all_clips.totalSize();
+    // for (bigint iii = 0; iii < NNN; iii++) {
+    //     all_clips_reshaped.set(all_clips.get(iii), iii);
+    // }
+
+    // elapsed_times << timer.restart();
+
+    // bool subtract_mean = false;
+    // Mda32 FF;
+    // Mda32 CC, sigma;
+    // pca(CC, FF, sigma, all_clips_reshaped, opts.num_features, subtract_mean);
+
+    // elapsed_times << timer.restart();
+
+    // KdTree tree;
+    // tree.create(FF);
+    // double num_correct = 0;
+    // double num_total = 0;
+    // for (bigint i = 0; i < FF.N2(); i++) {
+    //     QVector<float> p;
+    //     for (bigint j = 0; j < FF.N1(); j++) {
+    //         p << FF.value(j, i);
+    //     }
+    //     QList<int> indices = tree.findApproxKNearestNeighbors(FF, p, opts.K_nearest, opts.exhaustive_search_num);
+    //     for (bigint a = 0; a < indices.count(); a++) {
+    //         if (indices[a] != i) {
+    //             if (all_labels[indices[a]] == all_labels[i])
+    //                 num_correct++;
+    //             num_total++;
+    //         }
+    //     }
+    // }
+
+    // elapsed_times << timer.restart();
+
+    // if (false)
+    //     qDebug().noquote() << "Elapsed times:" << elapsed_times;
+
+    // if (!num_total)
+    //     return 0;
+    // return 1 - (num_correct * 1.0 / num_total);
+    // }
 
 double compute_overlap(const DiskReadMda32& X, const QVector<double>& times1, const QVector<double>& times2, P_isolation_metrics_opts opts)
 {
@@ -473,7 +550,7 @@ QVector<bigint> find_label_inds(const QVector<bigint>& labels, bigint k)
 double distsqr_between_templates(const Mda32& X, const Mda32& Y)
 {
     double ret = 0;
-    for (bigint i = 0; i < X.totalSize(); i++) {
+    for (int i = 0; i < X.totalSize(); i++) {
         double tmp = X.get(i) - Y.get(i);
         ret += tmp * tmp;
     }
@@ -485,35 +562,32 @@ double correlation_between_templates(Mda32& X, Mda32& Y)
     return MLCompute::correlation(X.totalSize(), X.dataPtr(), Y.dataPtr());
 }
 
-QSet<QString> get_pairs_to_compare(const Mda32& templates0, bigint num_comparisons_per_cluster, const QList<int>& cluster_numbers, P_isolation_metrics_opts opts)
+QSet<QString> get_pairs_to_compare(const Mda32& templates0, const QList<int>& cluster_numbers, P_isolation_metrics_opts opts)
 {
     (void)opts;
     QSet<QString> ret;
 
-    int min_num_comparisons_per_cluster = 3;
-
     for (bigint i1 = 0; i1 < cluster_numbers.count(); i1++) {
-        bigint k1 = cluster_numbers[i1];
+        int k1 = cluster_numbers[i1];
         Mda32 template1;
         templates0.getChunk(template1, 0, 0, k1 - 1, template1.N1(), template1.N2(), 1);
         QVector<double> dists;
         QVector<double> correlations;
         for (bigint i2 = 0; i2 < cluster_numbers.count(); i2++) {
             Mda32 template2;
-            bigint k2 = cluster_numbers[i2];
-            templates0.getChunk(template2, 0, 0, k2 - 1, template2.N1(), template2.N2(), 1);
+            templates0.getChunk(template2, 0, 0, cluster_numbers[i2] - 1, template2.N1(), template2.N2(), 1);
             dists << distsqr_between_templates(template1, template2);
             correlations << correlation_between_templates(template1, template2);
+            // qDebug().noquote() << QString("dist: %1, corr: %2").arg(distsqr_between_templates(template1, template2)).arg(correlation_between_templates(template1, template2));
         }
-        QList<bigint> inds = get_sort_indices_bigint(dists);
+        QList<int> inds = get_sort_indices(dists);
         int num0 = 0;
-        for (bigint a = 0; (a < inds.count()) && (num0 < num_comparisons_per_cluster); a++) {
-            if ((a < min_num_comparisons_per_cluster) || (correlations[a] >= 0.8)) {
+        for (int a = 1; (a < inds.count()) && (num0 < 10); a++) {
+            if ((a < 10) || (correlations[inds[a]] >= 0.6)) {
                 int k2 = cluster_numbers[inds[a]];
-                if (k2 != k1) {
-                    ret.insert(QString("%1-%2").arg(k1).arg(k2));
-                    num0++;
-                }
+                // qDebug().noquote() << QString("Compare C%1 and C%2, corr:%3").arg(k1,2).arg(k2,2).arg(correlations[inds[a]]);
+                ret.insert(QString("%1-%2").arg(k1).arg(k2));
+                num0++;
             }
         }
     }
@@ -529,16 +603,16 @@ Mda32 extract_clips(const DiskReadMda32& X, const QVector<double>& times, int cl
     bigint L = times.count();
     Mda32 clips(M, T, L);
     for (bigint i = 0; i < L; i++) {
-        bigint t1 = times.value(i) - Tmid;
-        //bigint t2 = t1 + T - 1;
+        bigint t0 = (bigint)(times[i] + 0.5) - Tmid;
         Mda32 tmp;
-        if (!X.readChunk(tmp, 0, t1, M, T)) {
+        if (!X.readChunk(tmp, 0, t0, M, T)) {
             qWarning() << "Problem reading chunk in extract_clips of isolation_metrics";
         }
         clips.setChunk(tmp, 0, 0, i);
     }
     return clips;
 }
+
 Mda32 compute_mean_clip(const Mda32& clips)
 {
     bigint M = clips.N1();
@@ -566,6 +640,7 @@ Mda32 compute_mean_clip(const Mda32& clips)
     }
     return ret;
 }
+
 Mda32 compute_stdev_clip(const Mda32& clips)
 {
     bigint M = clips.N1();
@@ -599,15 +674,16 @@ Mda32 compute_stdev_clip(const Mda32& clips)
     }
     return stdevs;
 }
-QJsonObject get_cluster_metrics(const DiskReadMda32& X, const QVector<double>& times, P_isolation_metrics_opts opts)
+
+QJsonObject get_cluster_metrics(const DiskReadMda32& X, const QVector<double>& times, const Mda32& noise_clips0, P_isolation_metrics_opts opts)
 {
     QJsonObject ret;
     Mda32 clips_k = extract_clips(X, times, opts.clip_size);
     Mda32 template_k = compute_mean_clip(clips_k);
     Mda32 stdev_k = compute_stdev_clip(clips_k);
-    double noise_overlap0 = compute_noise_overlap(X, times, opts, false);
+    double noise_overlap0 = compute_noise_overlap(X, times, noise_clips0, opts, false);
     {
-        double min0 = template_k.minimum();
+        //double min0 = template_k.minimum();
         double max0 = template_k.maximum();
         //ret["peak_amp"] = qMax(qAbs(min0), qAbs(max0));
         ret["amplitude"] = max0; // also change below in snr.
@@ -630,6 +706,7 @@ QJsonObject get_cluster_metrics(const DiskReadMda32& X, const QVector<double>& t
     }
     return ret;
 }
+
 QJsonObject get_pair_metrics(const DiskReadMda32& X, const QVector<double>& times_k1, const QVector<double>& times_k2, P_isolation_metrics_opts opts)
 {
     QJsonObject pair_metrics;
@@ -637,6 +714,7 @@ QJsonObject get_pair_metrics(const DiskReadMda32& X, const QVector<double>& time
     pair_metrics["overlap"] = overlap;
     return pair_metrics;
 }
+
 bool is_bursting_parent_candidate(const Mda32& template0, const Mda32& template0_parent, P_isolation_metrics_opts opts)
 {
     float maxabs = 0, maxabs_parent = 0;
@@ -649,6 +727,7 @@ bool is_bursting_parent_candidate(const Mda32& template0, const Mda32& template0
     double cor = MLCompute::correlation(template0.totalSize(), template0.constDataPtr(), template0_parent.constDataPtr());
     return (cor >= opts.bursting_parent_waveform_correlation_threshold);
 }
+
 double compute_z_score_for_counts(double expected_count, double count)
 {
     double sigma = sqrt(qMax(15.0, expected_count));
@@ -685,4 +764,8 @@ bool test_bursting_timing(const QVector<double>& times_in, const QVector<double>
     }
     return (zz > opts.bursting_parent_z_threshold);
 }
-}
+
+} // end of namespace
+
+
+

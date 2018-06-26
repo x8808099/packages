@@ -31,8 +31,9 @@ using std::sqrt;
 Mda32 compute_mean_clip(const Mda32& clips);
 Mda32 extract_clips(const DiskReadMda32& X, const QVector<double>& times, int clip_size);
 Mda32 compute_noise_shape(const Mda32& noise_clips, const Mda32& template0);
+QVector<double> sample(const QVector<double>& times, bigint num);
 void regress_out_noise_shape(Mda32& clips, const Mda32& shape);
-double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& times, Discard_noisy_clusters_opts opts);
+double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& times, const Mda32& noise_clips0, Discard_noisy_clusters_opts opts);
 
 void discard_noisy_clusters(QVector<double>& times, QVector<int>& labels, QVector<int>& central_channels, Mda32& templates, const DiskReadMda32& X, Discard_noisy_clusters_opts opts)
 {   
@@ -40,6 +41,45 @@ void discard_noisy_clusters(QVector<double>& times, QVector<int>& labels, QVecto
     int T = templates.N2();
     int K = templates.N3();
     bigint L = labels.count();
+    bigint N_in =  X.N2() / opts.input_clip_size;
+    bigint num_noise_sample = 1000;
+    if (N_in <= num_noise_sample)
+        return;
+  
+    QVector<double> noise_times0;
+    double increment = N_in * 1.0 / num_noise_sample;
+    double j = 0;
+    for (int i = 0; i < num_noise_sample; i++) { 
+            noise_times0 <<  ((bigint)j + 1) * opts.input_clip_size - opts.clip_size/2 - 1;
+            j += increment;
+    }
+    Mda32 noise_clips0 = extract_clips(X, noise_times0, T);
+
+    // bigint num_noise_sample = qMin(N_in, 1000);
+    // qsrand(times.count()); 
+    // for (bigint i = 0; i < num_noise_sample; i++) {
+    //      noise_times0 << (qrand() % N_in + 1) * opts.input_clip_size - opt.clip_size/2 - 1;
+    // }
+    
+    //#pragma omp parallel for
+    // for (int jj = 0; jj < cluster_numbers.count(); jj++) {
+    //     DiskReadMda32 X0;
+    //     QVector<double> times_k;
+    //     int k;
+    //     P_isolation_metrics_opts opts0;
+    // #pragma omp critical
+    //     {
+    //         X0 = X;
+    //         k = cluster_numbers[jj];
+    //         for (bigint i = 0; i < labels.count(); i++) {
+    //             if (labels[i] == k)
+    //                 times_k << times[i];
+    //         }
+    //         opts0 = opts;
+    //     }
+
+    //     get_cluster_metrics(X0, times_k, opts0);
+
     QMap<int, int> label_map;
     label_map[0] = 0;
     int knext = 1;
@@ -51,8 +91,8 @@ void discard_noisy_clusters(QVector<double>& times, QVector<int>& labels, QVecto
 	int central_channel = 0;
 	int ii = 0;
         while (central_channel == 0) {
-	    if (labels[ii] == k) { 
-	        central_channel = central_channels[ii];
+	        if (labels[ii] == k) { 
+	            central_channel = central_channels[ii];
             }
             ii++;
         }
@@ -67,18 +107,18 @@ void discard_noisy_clusters(QVector<double>& times, QVector<int>& labels, QVecto
         }
         double noise_det_ratio = det_counts * 1.0 / time_k.count();
         if (noise_det_ratio < opts.detect_time_discard_thresh) {
-            double noise_overlap = compute_noise_overlap(X, time_k, opts);
+            double noise_overlap = compute_noise_overlap(X, time_k, noise_clips0, opts);
             if (noise_overlap < opts.noise_overlap_discard_thresh) {
-                qDebug().noquote() << QString("Ch%1 (%2) ratio: %3%, overlap: %4% -> C%5").arg(central_channel).arg(time_k.count(),5).arg(noise_det_ratio*100,4,'f',1).arg(noise_overlap*100,4,'f',1).arg(knext);            
+                qDebug().noquote() << QString("Ch%1 |%2 ratio:%3 % overlap:%4 % -> C%5").arg(central_channel).arg(time_k.count(),5).arg(noise_det_ratio*100,5,'f',1).arg(noise_overlap*100,6,'f',2).arg(knext);            
                 label_map[k] = knext;
                 knext++;
             }
-	    else {
-                qDebug().noquote() << QString("Ch%1 (%2) ratio: %3%, overlap: %4%").arg(central_channel).arg(time_k.count(),5).arg(noise_det_ratio*100,4,'f',1).arg(noise_overlap*100,4,'f',1);
+       	    else {
+                qDebug().noquote() << QString("Ch%1 |%2 ratio:%3 % overlap:%4 %").arg(central_channel).arg(time_k.count(),5).arg(noise_det_ratio*100,5,'f',1).arg(noise_overlap*100,6,'f',2);
             }
         }
         else {
-            qDebug().noquote() << QString("Ch%1 (%2) ratio: %3%").arg(central_channel).arg(time_k.count(),5).arg(noise_det_ratio*100,4,'f',1);
+            qDebug().noquote() << QString("Ch%1 |%2 ratio:%3 %").arg(central_channel).arg(time_k.count(),5).arg(noise_det_ratio*100,5,'f',1);
         }
     }
 
@@ -95,12 +135,10 @@ void discard_noisy_clusters(QVector<double>& times, QVector<int>& labels, QVecto
     QVector<int> labels2(inds_to_use.count());
     QVector<int> central_channels2(inds_to_use.count());
     for (bigint i = 0; i < inds_to_use.count(); i++) {
-        times2[i] = times[inds_to_use[i]];
-        int kk = labels[inds_to_use[i]];
-        if (kk > 0)
-            kk = label_map[kk];
-        labels2[i] = kk;
-        central_channels2[i] = central_channels[inds_to_use[i]];
+        int ik = inds_to_use[i];
+        times2[i] = times[ik];
+        labels2[i] = label_map[labels[ik]];
+        central_channels2[i] = central_channels[ik];
     }
     
     int K2 = MLCompute::max(labels2);
@@ -124,71 +162,41 @@ void discard_noisy_clusters(QVector<double>& times, QVector<int>& labels, QVecto
     templates = templates2;
 }
 
-
-bigint random_time(bigint N, bigint clip_size)
+double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& times, const Mda32& noise_clips0, Discard_noisy_clusters_opts opts)
 {
-    if (N <= clip_size * 2)
-        return N / 2;
-    return clip_size + (qrand() % (N - clip_size * 2));
-}
-
-QVector<double> sample(const QVector<double>& times, bigint num)
-{
-    QVector<double> random_values(times.count());
-    for (bigint i = 0; i < times.count(); i++) {
-        random_values[i] = sin(i * 12 + i * i);
-    }
-    QList<bigint> inds = get_sort_indices_bigint(random_values);
-    QVector<double> ret;
-    for (bigint i = 0; (i < num) && (i < inds.count()); i++) {
-        ret << times[inds[i]];
-    }
-    return ret;
-}
-
-double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& times, Discard_noisy_clusters_opts opts)
-{
-
-    bigint N = X.N2();
     int T = opts.clip_size;
+    bigint N_in =  X.N2() / opts.input_clip_size;
     bigint num_to_use = qMin(opts.max_num_to_use, times.count());
 
     QVector<double> times_subset = sample(times, num_to_use);
     QVector<bigint> labels_subset;
-    for (bigint i = 0; i < times_subset.count(); i++) {
+    for (bigint i = 0; i < times_subset.count(); i++)
         labels_subset << 1;
-    }
-    QVector<bigint> all_labels = labels_subset; //0 and 1
-    QVector<double> all_times = times_subset;
     
     QVector<double> noise_times;
     QVector<bigint> noise_labels;
-    for (bigint i = 0; i < times_subset.count(); i++) {
-        noise_times << random_time(N, T);
-        noise_labels << 0;
+     for (bigint i = 0; i < times_subset.count(); i++) {
+         bigint ni = (bigint)(times_subset[i] + 0.5) / opts.input_clip_size + 100;
+         noise_times <<  (ni % N_in + 1) * opts.input_clip_size - opts.clip_size/2 - 1 ;
+         noise_labels << 0;
     }
+
+    QVector<bigint> all_labels = labels_subset;
+    QVector<double> all_times = times_subset;
     all_times.append(noise_times);
     all_labels.append(noise_labels);
 
- 
     Mda32 clips = extract_clips(X, times_subset, T);
     Mda32 template1 = compute_mean_clip(clips);
-    
-    QVector<double> noise_times1;
-    for (bigint i = 0; i < 1000; i++) {
-        noise_times1 << random_time(N, T);
-    }
-    Mda32 noise_clips = extract_clips(X, noise_times1, T);
-    Mda32 noise_shape = compute_noise_shape(noise_clips, template1); 
+    Mda32 noise_shape = compute_noise_shape(noise_clips0, template1); 
     
     Mda32 all_clips = extract_clips(X, all_times, T);
     regress_out_noise_shape(all_clips, noise_shape);
 
     Mda32 all_clips_reshaped(all_clips.N1() * all_clips.N2(), all_clips.N3());
     bigint NNN = all_clips.totalSize();
-    for (bigint iii = 0; iii < NNN; iii++) {
+    for (bigint iii = 0; iii < NNN; iii++)
         all_clips_reshaped.set(all_clips.get(iii), iii);
-    }
 
     Mda32 FF;
     Mda32 CC, sigma;
@@ -201,9 +209,8 @@ double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& time
     double num_total = 0;
     for (bigint i = 0; i < FF.N2(); i++) {
         QVector<float> p;
-        for (bigint j = 0; j < FF.N1(); j++) {
+        for (bigint j = 0; j < FF.N1(); j++)
             p << FF.value(j, i);
-        }
         QList<int> indices = tree.findApproxKNearestNeighbors(FF, p, opts.K_nearest, opts.exhaustive_search_num);
         for (bigint a = 0; a < indices.count(); a++) {
             if (indices[a] != i) {
@@ -213,29 +220,9 @@ double compute_noise_overlap(const DiskReadMda32& X, const QVector<double>& time
             }
         }
     }
-
     if (!num_total)
         return 0;
     return 1 - (num_correct * 1.0 / num_total);
-}
-
-
-Mda32 extract_clips(const DiskReadMda32& X, const QVector<double>& times, int clip_size)
-{   
-    bigint M = X.N1();
-    bigint T = clip_size;
-    bigint Tmid = (bigint)((T + 1) / 2) - 1;
-    bigint L = times.count();
-    Mda32 clips(M, T, L);
-    for (bigint i = 0; i < L; i++) {
-        bigint t1 = times.value(i) - Tmid;
-        Mda32 tmp;
-        if (!X.readChunk(tmp, 0, t1, M, T)) {
-            qWarning() << "Problem reading chunk in extract_clips of isolation_metrics";
-        }
-        clips.setChunk(tmp, 0, 0, i);
-    }
-    return clips;
 }
 
 Mda32 compute_mean_clip(const Mda32& clips)
@@ -316,3 +303,42 @@ void regress_out_noise_shape(Mda32& clips, const Mda32& shape)
         clips.setChunk(clip, 0, 0, i);
     }
 }
+
+QVector<double> sample(const QVector<double>& times, bigint num)
+{
+    QVector<double> random_values(times.count());
+    for (bigint i = 0; i < times.count(); i++) {
+        random_values[i] = sin(i * 12 + i * i);
+    }
+    QList<bigint> inds = get_sort_indices_bigint(random_values);
+    QVector<double> ret;
+    for (bigint i = 0; (i < num) && (i < inds.count()); i++) {
+        ret << times[inds[i]];
+    }
+    return ret;
+}
+
+Mda32 extract_clips(const DiskReadMda32& X, const QVector<double>& times, int clip_size)
+{   
+    bigint M = X.N1();
+    bigint T = clip_size;
+    bigint Tmid = (bigint)((T + 1) / 2) - 1;
+    bigint L = times.count();
+    Mda32 clips(M, T, L);
+    for (bigint i = 0; i < L; i++) {
+        bigint t0 = (bigint)(times[i] - Tmid + 0.5);
+        Mda32 tmp;
+        if (!X.readChunk(tmp, 0, t0, M, T)) {
+            qWarning() << "Problem reading chunk in extract_clips";
+        }
+        clips.setChunk(tmp, 0, 0, i);
+    }
+    return clips;
+}
+
+// bigint random_time(bigint N_in, bigint clip_size)
+// {
+//     if (N <= clip_size * 2)
+//         return N / 2;
+//     return clip_size + (qrand() % (N - clip_size * 2));
+// }

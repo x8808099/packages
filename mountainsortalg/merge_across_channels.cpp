@@ -20,7 +20,7 @@ QList<QVector<bigint> > find_label_inds(const QVector<int>& labels, int K);
 bool peaks_are_within_range_to_consider(double p1, double p2, Merge_across_channels_opts opts);
 bool peaks_are_within_range_to_consider(double p11, double p12, double p21, double p22, Merge_across_channels_opts opts);
 QList<int> reverse_order(const QList<int>& inds);
-bool cluster_is_already_being_used(const QVector<double>& times_in, const QVector<double>& other_times_in, int c_id, int ref_id, Merge_across_channels_opts opts);
+double used_fraction_in_candidate_cluster(const QVector<double>& times_in, const QVector<double>& other_times_in, int c_id, int ref_id, Merge_across_channels_opts opts);
 int get_optimal_time_shift_between_templates(const Mda32& template0, const Mda32& template_ref, int max_dt);
 
 void merge_across_channels(QVector<double>& times, QVector<int>& labels, QVector<int>& central_channels, Mda32& templates, Merge_across_channels_opts opts)
@@ -39,9 +39,8 @@ void merge_across_channels(QVector<double>& times, QVector<int>& labels, QVector
             double peak_value = 0;
             for (int t = 0; t < T; t++) {
                 double val = templates.value(m, t, k);
-                if (val > peak_value) {
+                if (val > peak_value) // py: disable qAbs to be consistent with detection sign.
                     peak_value = val;
-                }
             }
             channel_peaks.setValue(peak_value, m, k);
         }
@@ -73,7 +72,9 @@ void merge_across_channels(QVector<double>& times, QVector<int>& labels, QVector
                 if (!inds2->isEmpty()) {
                     int central_chan1 = central_channels_for_clusters[k1];
                     int central_chan2 = central_channels_for_clusters[k2];
-                    if (central_chan1 != central_chan2) { //only attempt to merge if the peak channels are different -- that's why it's called "merge_across_channels"
+                    // only attempt to merge if the peak channels are different -- that's why it's called "merge_across_channels"
+                    if (central_chan1 != central_chan2) { 
+    // py: just consider all possible pairs in different channels.
     //                     double val11 = channel_peaks.value(central_chan1 - 1, k1);
     //                     double val12 = channel_peaks.value(central_chan2 - 1, k1);
     //                     double val21 = channel_peaks.value(central_chan1 - 1, k2);
@@ -89,55 +90,112 @@ void merge_across_channels(QVector<double>& times, QVector<int>& labels, QVector
     //sort by largest peak so we can go through in order
     QVector<double> abs_peaks_on_own_channels;
     for (int k = 0; k < K; k++) {
-        abs_peaks_on_own_channels << channel_peaks.value(central_channels_for_clusters[k] - 1, k);
+        int i_channel = central_channels_for_clusters[k] - 1;
+        double min_value = 0;
+        //    for (int t = 0; t < T; t++) {
+        //        double val = templates.value(i_channel, t, k);
+        //        if (val < min_value)
+        //            min_value = val;
+        //    }
+        abs_peaks_on_own_channels << channel_peaks.value(i_channel, k) - min_value;
     }
     QList<int> inds1 = get_sort_indices(abs_peaks_on_own_channels);
     inds1 = reverse_order(inds1);
 
-    //printf("Testing timings of merge candidates...\n");
+    qDebug().noquote() << QString("......Test overlap timings across channels......");
     int num_removed = 0;
     QList<bool> clusters_to_use;
-    for (int k = 0; k < K; k++)
+    QList<bool> go_second_pass;
+    for (int k = 0; k < K; k++) {
         clusters_to_use << false;
-    //Warning: This  cannot be parallelized -- it is sequential!
+        go_second_pass << false;
+    }
+
+    // WARNING: This cannot be parallelized -- it is sequential!
     for (int ii = 0; ii < inds1.count(); ii++) {
-        QVector<double> times_k;
-        bool to_use = true;
         int ik = inds1[ii];
-        {   
-            Mda32 template1;
-            templates.getChunk(template1, 0, 0, ik, M, T, 1);
-            QVector<bigint>* inds_k = &all_label_inds[ik];
-            for (int a = 0; a < inds_k->count(); a++) {
-                times_k << times[(*inds_k)[a]];
-            }
-            for (int ik2 = 0; ik2 < K; ik2++) {               
-                if ( (to_use) && (candidate_pairs.value(ik, ik2)) ) { // candidate pair: ik + 1, ik2 + 1
-                    if (clusters_to_use[ik2]) { //we are already using the other one
-                        QVector<double> other_times;
-                        Mda32 template2;
-                        templates.getChunk(template2, 0, 0, ik2, M, T, 1);
-                        int optimal_time_shift = 0; //get_optimal_time_shift_between_templates(template2, template1, 15);
-                        QVector<bigint>* inds_k2 = &all_label_inds[ik2];
-                        for (int a = 0; a < inds_k2->count(); a++) {
-                            other_times << times[(*inds_k2)[a]] + optimal_time_shift;
-                        }
-                        if (cluster_is_already_being_used(times_k, other_times, ik + 1, ik2 + 1, opts))
-                            to_use = false;
-                    }
+        clusters_to_use[ik] = true;
+
+        QVector<double> times_k;
+        double used_fraction;
+        double cumulated_fraction = 0;
+        Mda32 template1;
+        templates.getChunk(template1, 0, 0, ik, M, T, 1);
+        QVector<bigint>* inds_k = &all_label_inds[ik];
+        for (int a = 0; a < inds_k->count(); a++) {
+            times_k << times[(*inds_k)[a]];
+        }
+        for (int ik2 = 0; ik2 < K; ik2++) {               
+            if (candidate_pairs.value(ik, ik2) && (clusters_to_use[ik]) && (clusters_to_use[ik2]) ) {
+                QVector<double> other_times;
+                Mda32 template2;
+                templates.getChunk(template2, 0, 0, ik2, M, T, 1);
+                QVector<bigint>* inds_k2 = &all_label_inds[ik2];
+                int optimal_time_shift = 0; //get_optimal_time_shift_between_templates(template2, template1, 15);
+                for (int a = 0; a < inds_k2->count(); a++) {
+                    other_times << times[(*inds_k2)[a]] + optimal_time_shift;
+                }
+                used_fraction = used_fraction_in_candidate_cluster(times_k, other_times, ik + 1, ik2 + 1, opts);
+                if (used_fraction > opts.pair_fraction_threshold)
+                    go_second_pass[ik] = true;
+                cumulated_fraction += used_fraction;
+                if (cumulated_fraction > opts.event_fraction_threshold) { 
+                    num_removed++;
+                    clusters_to_use[ik] = false;
+                    go_second_pass[ik] = false;
                 }
             }
         }
-        if (to_use) {
-            clusters_to_use[ik] = true;
-            qDebug().noquote() << QString("ACCEPT C%1 (%2) %3").arg(ik + 1).arg(times_k.count()).arg(abs_peaks_on_own_channels[ik]);
-        }
+        if (go_second_pass[ik]) {
+            clusters_to_use[ik] = false;
+            qDebug().noquote() << QString("Cluster%1 -peak:%2- |%3:%4 % <").arg(ik + 1,2).arg(abs_peaks_on_own_channels[ik],5,'f',2).arg(times_k.count(),5).arg(cumulated_fraction*100,5,'f',1);  
+        }    
+        else if (clusters_to_use[ik])
+            qDebug().noquote() << QString("Cluster%1 -peak:%2- |%3:%4 % <--").arg(ik + 1,2).arg(abs_peaks_on_own_channels[ik],5,'f',2).arg(times_k.count(),5).arg(cumulated_fraction*100,5,'f',1);
         else
-        {
-            num_removed++;
-            qDebug().noquote() << QString("DISCARD C%1 (%2) %3").arg(ik + 1).arg(times_k.count()).arg(abs_peaks_on_own_channels[ik]);
+            qDebug().noquote() << QString("Cluster%1 -peak:%2- |%3:%4 %").arg(ik + 1,2).arg(abs_peaks_on_own_channels[ik],5,'f',2).arg(times_k.count(),5).arg(cumulated_fraction*100,5,'f',1);
+        qDebug().noquote() << QString(".");
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////
+    qDebug().noquote() << QString("......Second pass.....");
+    for (int ii = 0; ii < inds1.count(); ii++) {
+        int ik = inds1[ii];
+        if (go_second_pass[ik]) {
+            clusters_to_use[ik] = true;
+            QVector<double> times_k;
+            double used_fraction;
+            double cumulated_fraction = 0;
+            Mda32 template1;
+            templates.getChunk(template1, 0, 0, ik, M, T, 1);
+            QVector<bigint>* inds_k = &all_label_inds[ik];
+            for (int a = 0; a < inds_k->count(); a++)
+                times_k << times[(*inds_k)[a]];
+            for (int ik2 = 0; ik2 < K; ik2++) {               
+                if (candidate_pairs.value(ik, ik2) && (clusters_to_use[ik]) && (clusters_to_use[ik2]) ) {
+                    QVector<double> other_times;
+                    Mda32 template2;
+                    templates.getChunk(template2, 0, 0, ik2, M, T, 1);
+                    QVector<bigint>* inds_k2 = &all_label_inds[ik2];
+                    for (int a = 0; a < inds_k2->count(); a++)
+                        other_times << times[(*inds_k2)[a]];
+                    used_fraction = used_fraction_in_candidate_cluster(times_k, other_times, ik + 1, ik2 + 1, opts);
+                    cumulated_fraction += used_fraction;
+                    if (cumulated_fraction > opts.event_fraction_threshold) { 
+                        num_removed++;
+                        clusters_to_use[ik] = false;
+                    }
+                }
+            }
+            if (clusters_to_use[ik])
+                qDebug().noquote() << QString("Cluster%1 peak:%2 --|%3:%4 % <--").arg(ik + 1,2).arg(abs_peaks_on_own_channels[ik],5,'f',2).arg(times_k.count(),5).arg(cumulated_fraction*100,5,'f',1);
+            else
+                qDebug().noquote() << QString("Cluster%1 peak:%2 --|%3:%4 %").arg(ik + 1,2).arg(abs_peaks_on_own_channels[ik],5,'f',2).arg(times_k.count(),5).arg(cumulated_fraction*100,5,'f',1);
+            qDebug().noquote() << QString(".");
         }
     }
+
+//////////////////////
 
     QMap<int, int> label_map;
     int k2 = 1;
@@ -240,39 +298,41 @@ QList<int> reverse_order(const QList<int>& inds)
     return ret;
 }
 
-bool cluster_is_already_being_used(const QVector<double>& times_in, const QVector<double>& other_times_in, int c_id, int ref_id, Merge_across_channels_opts opts)
-{
-    if (times_in.isEmpty())
-        return false;
-    if (other_times_in.isEmpty())
-        return false;
-    QVector<double> times = times_in;
-    QVector<double> other_times = other_times_in;
-    qSort(times);
-    qSort(other_times);
-    bigint count = 0;
-    int ii_other = 0;
-    int max_dt1 = opts.clip_size/2;
-    int max_dt2 = opts.clip_size/3;
-    for (int ii = 0; ii < times.count(); ii++) {
-        double t0 = times[ii];
-        bool found_a_match = false;
-        while ((ii_other + 1 < other_times.count()) && (other_times[ii_other] < t0 - max_dt1))
-            ii_other++;
-        while ((ii_other < other_times.count()) && (other_times[ii_other] <= t0 + max_dt2)) {
-            found_a_match = true;
-            ii_other++;
+double used_fraction_in_candidate_cluster(const QVector<double>& times, const QVector<double>& other_times, int c_id, int ref_id, Merge_across_channels_opts opts)
+{   
+    // py: can be defined in terms of opts.clip_size etc.
+    int bin_size =  4;
+    int bin_count = 20;
+    int sum_num = 5;
+    int max_dt = 40;
+    
+    int i_other = 0;
+    QVector<int> counts(bin_count, 0);
+    for (int i = 0; i < times.count(); i++) {
+        double t0 = times[i] - max_dt;
+        while ((i_other + 1 < other_times.count()) && (other_times[i_other] < t0))
+            i_other++;
+        int i_bin = 0;
+        while ((i_other < other_times.count()) && (other_times[i_other] <= t0 + bin_count*bin_size)) { 
+            i_bin++;
+            while ((i_other < other_times.count()) && (other_times[i_other] <= t0 + i_bin*bin_size)) {
+                counts[i_bin-1]++;
+                i_other++;
+            }
         }
-        if (found_a_match)
-            count++;
     }
+
+    QVector<int> sum_counts(bin_count - sum_num + 1, 0);
+    for (int j = 0; j <= bin_count - sum_num; j++) {
+        for (int k = 0; k < sum_num; k++)
+            sum_counts[j] += counts[j+k];  
+    } 
+     
+    int count = MLCompute::max(sum_counts); 
     double frac = count * 1.0 / times.count();
-    qDebug().noquote() << QString("C%1 in C%2(%3): %4").arg(c_id).arg(ref_id).arg(other_times.count()).arg(frac);
-    if (frac >= opts.event_fraction_threshold) {
-        //qDebug().noquote() << counts.mid(best_t - max_dt, max_dt * 2 + 1);
-        return true;
-    }
-    return false;
+    //double frac_ref = count * 1.0 / other_times.count(); .arg(frac_ref*100,5,'f',1)
+    qDebug().noquote() << QString("Cluster%1 in Cluster%2 |%3:%4 %").arg(c_id,2).arg(ref_id,2).arg(other_times.count(),5).arg(frac*100,5,'f',1);
+    return frac;
 }
 
 int get_optimal_time_shift_between_templates(const Mda32& template0, const Mda32& template_ref, int max_dt)

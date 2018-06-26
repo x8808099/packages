@@ -17,10 +17,12 @@
 #define P_ISOLATION_METRICS_H
 
 #include <QStringList>
+#include "mlcompute.h"
 
 struct P_isolation_metrics_opts {
     QList<int> cluster_numbers;
     int clip_size = 60;
+    int input_clip_size = 120;
     int num_features = 10;
     int K_nearest = 6;
     int exhaustive_search_num = 100;

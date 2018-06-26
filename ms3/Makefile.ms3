@@ -510,6 +510,8 @@ build/mountainsort3_main.o: mountainsort3_main.cpp mda/mdaio.h \
 		p_link_segments.h \
 		p_cluster_metrics.h \
 		p_isolation_metrics.h \
+		common/mlcompute.h \
+		common/mlvector.h \
 		p_concat_firings.h \
 		p_split_firings.h \
 		p_load_test.h \
@@ -522,8 +524,6 @@ build/mountainsort3_main.o: mountainsort3_main.cpp mda/mdaio.h \
 		p_mv_discrimhist.h \
 		mda/diskreadmda.h \
 		mda/mda.h \
-		common/mlcompute.h \
-		common/mlvector.h \
 		mda/diskreadmda32.h \
 		mda/mda32.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o build/mountainsort3_main.o mountainsort3_main.cpp
@@ -757,11 +757,11 @@ build/p_compute_amplitudes.o: p_compute_amplitudes.cpp p_compute_amplitudes.h \
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o build/p_compute_amplitudes.o p_compute_amplitudes.cpp
 
 build/p_isolation_metrics.o: p_isolation_metrics.cpp p_isolation_metrics.h \
-		get_sort_indices.h \
+		common/mlcompute.h \
 		common/mlvector.h \
+		get_sort_indices.h \
 		mda/diskreadmda.h \
 		mda/mda.h \
-		common/mlcompute.h \
 		mda/mdaio.h \
 		mda/diskreadmda32.h \
 		mda/mda32.h \
