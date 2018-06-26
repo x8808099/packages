@@ -19,10 +19,10 @@ iCh = 1;
 det_itv = 30;
 clip_size = 60;
 noth = 10; % noise_overlap_threshold 
-csof = 99;
+csof = 95;
 merge_or_not = 'true';
 whiten_or_not = 'true';
-det_th = 2.5;
+det_th = 2.8;
 
 Chs = unique(tetrodeChannel)
 Data = reshape(tetrodeData,nchs,sl,[]);
