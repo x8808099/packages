@@ -28,7 +28,7 @@ public:
 
     void setOptions(P_mountainsort3_opts opts);
     void setMaxRAM(bigint max_ram_bytes);
-    void addTimeChunk(bigint t, const Mda32& X, const QList<int>& channels, bigint padding_left, bigint padding_right);
+    void addTimeChunk(bigint t, const Mda32& X, const QList<int>& channels, bigint chunk_padding);
     void sort(int num_threads);
     QVector<double> times() const;
     QVector<int> labels() const;

@@ -21,16 +21,17 @@
 #include "diskreadmda32.h"
 
 struct Discard_noisy_clusters_opts {
-    int clip_size = 60;
-    int max_num_to_use = 500;
-    int min_num_to_use = 100;
     int num_features = 10;
     int K_nearest = 6;
     int exhaustive_search_num = 100;
+
+    int max_num_to_use = 500;
+    int clip_size = 60;
     int input_clip_size = 120; 
     int noise_detect_time = 48;
+
     double detect_time_discard_thresh = 0.5;
-    double noise_overlap_discard_thresh = 0.1;
+    double noise_overlap_discard_thresh = 0.05;
 };
 
 void discard_noisy_clusters(QVector<double>& times, QVector<int>& labels, QVector<int>& central_channels, Mda32& templates, const DiskReadMda32& X, Discard_noisy_clusters_opts opts);

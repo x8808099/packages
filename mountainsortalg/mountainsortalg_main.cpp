@@ -37,14 +37,19 @@ QJsonObject get_spec()
         X.addOptionalParameter("consolidate_clusters", "", "true");
         X.addOptionalParameter("consolidation_factor", "", 0.99);
         X.addOptionalParameter("clip_size", "", 60);
+        X.addOptionalParameter("clip_shift", "", 5);
         X.addOptionalParameter("detect_interval", "", 30);
         X.addOptionalParameter("detect_threshold", "", 3);
         X.addOptionalParameter("detect_sign", "", 1);
+        X.addOptionalParameter("num_features", "", 10);
+        X.addOptionalParameter("num_features_per_channel", "", 10);
+        X.addOptionalParameter("clip_padding","",24);
         X.addOptionalParameter("input_clip_size","",120);
         X.addOptionalParameter("noise_detect_time","",48);
         X.addOptionalParameter("detect_time_discard_thresh","",0.5);
         X.addOptionalParameter("noise_overlap_discard_thresh","",0.15);
         X.addOptionalParameter("event_fraction_threshold","",0.3);
+        X.addOptionalParameter("discard_noisy_clusters", "", "true");
         X.addOptionalParameter("merge_across_channels", "", "true");
         X.addOptionalParameter("fit_stage", "", "true");
         X.addOptionalParameter("t1", "Start timepoint to do the sorting (default 0 means start at beginning)", 0);
@@ -96,20 +101,29 @@ int main(int argc, char* argv[])
         QString temp_path = CLP.named_parameters.value("_tempdir").toString();
 
         P_mountainsort3_opts opts;
-        opts.adjacency_radius = CLP.named_parameters.value("adjacency_radius").toDouble();
 
+        //py: need to change 2 names if copy and paste
+
+        opts.adjacency_radius = CLP.named_parameters.value("adjacency_radius").toDouble();
         opts.consolidation_factor = CLP.named_parameters.value("consolidation_factor").toDouble();
         opts.consolidate_clusters = (CLP.named_parameters.value("consolidate_clusters").toString() == "true");
         opts.merge_across_channels = (CLP.named_parameters.value("merge_across_channels").toString() == "true");
+        opts.discard_noisy_clusters = (CLP.named_parameters.value("discard_noisy_clusters").toString() == "true");
+
         opts.fit_stage = (CLP.named_parameters.value("fit_stage").toString() == "true");
 
-        opts.clip_size = CLP.named_parameters.value("clip_size").toDouble();
         opts.detect_sign = CLP.named_parameters.value("detect_sign").toInt();
         opts.detect_interval = CLP.named_parameters.value("detect_interval").toDouble();
         opts.detect_threshold = CLP.named_parameters.value("detect_threshold").toDouble();
 
-        opts.input_clip_size = CLP.named_parameters.value("input_clip_size").toDouble();
-        opts.noise_detect_time = CLP.named_parameters.value("noise_detect_time").toDouble();
+        opts.clip_size = CLP.named_parameters.value("clip_size").toInt();
+        opts.clip_shift = CLP.named_parameters.value("clip_shift").toInt();
+        opts.clip_padding = CLP.named_parameters.value("clip_padding").toInt();
+        opts.num_features = CLP.named_parameters.value("num_features").toInt();
+        opts.num_features_per_channel = CLP.named_parameters.value("num_features_per_channel").toInt();
+
+        opts.input_clip_size = CLP.named_parameters.value("input_clip_size").toInt();
+        opts.noise_detect_time = CLP.named_parameters.value("noise_detect_time").toInt();
         opts.detect_time_discard_thresh = CLP.named_parameters.value("detect_time_discard_thresh").toDouble();
         opts.noise_overlap_discard_thresh = CLP.named_parameters.value("noise_overlap_discard_thresh").toDouble(); 
         opts.event_fraction_threshold = CLP.named_parameters.value("event_fraction_threshold").toDouble();
@@ -117,17 +131,10 @@ int main(int argc, char* argv[])
         opts.t1 = CLP.named_parameters.value("t1","-1").toDouble();
         opts.t2 = CLP.named_parameters.value("t2","-1").toDouble();
 
-        if (temp_path.isEmpty()) {
+        if (temp_path.isEmpty())
             temp_path = QDir::currentPath();
-        }
+    
         ret = p_mountainsort3(timeseries, geom, firings_out, temp_path, opts);
-
-        if (arg1 == "mountainsortalg.ms3") {
-            qWarning() << "********************************************************************************************************************************";
-            qWarning() << "WARNING! Please use mountainsortalg.ms3alg rather than mountainsortalg.ms3. Right now they are equivalent, but the latter will be removed in the future.";
-            qWarning() << "********************************************************************************************************************************";
-            qWarning() << "";
-        }
     }
     else {
         qWarning() << "Unexpected processor name: " + arg1;

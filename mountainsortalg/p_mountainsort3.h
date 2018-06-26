@@ -20,29 +20,37 @@
 typedef int64_t bigint;
 
 struct P_mountainsort3_opts {
-    double adjacency_radius = -1;
-    int clip_size = 60;
+    
+    // ~ indicates parameters that does not depend on values here (set in pipeline) 
+    
+    double adjacency_radius = -1;// ~
+    double detect_threshold = 3;// ~
+    int detect_interval = 30;//~
+    int detect_sign = 1;//~
 
-    double detect_threshold = 3;
-    int detect_interval = 30;
-    int detect_sign = 0;
+    int clip_size = 60;//~
+    int clip_shift = 6;//~
 
-    int num_features = 10;
-    int num_features_per_channel = 10;
+    int clip_padding = 24;
+
+    int num_features = 10;//~
+    int num_features_per_channel = 10;//~
+
     bigint max_pca_samples = 10000;
 
     bool consolidate_clusters = true;
-    double consolidation_factor = 0.99;
+    double consolidation_factor = 0.95;//~
 
-    bool merge_across_channels = true;
-    double event_fraction_threshold = 0.3;
+    bool discard_noisy_clusters = true;
+    bool merge_across_channels = true;//~
+    double event_fraction_threshold = 0.5;//~
 
-    int input_clip_size = 120; 
-    int noise_detect_time = 48;
-    double detect_time_discard_thresh = 0.5;
-    double noise_overlap_discard_thresh = 0.15;
+    int input_clip_size = 120;//~
+    int noise_detect_time = 66;//~
+    double detect_time_discard_thresh = 0.5;//~
+    double noise_overlap_discard_thresh = 0.05;//~
 
-    bool fit_stage = true;
+    bool fit_stage = true;//~
 
     double t1 = -1;
     double t2 = -1;

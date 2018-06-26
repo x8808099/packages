@@ -1,5 +1,4 @@
-%% compare whiten data
-
+%% compare whiten data with no-whiten
 %%
 %dX=1:24;
 %dX=[(1:24) 60:120];

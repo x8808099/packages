@@ -189,7 +189,7 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
     PR.startProcessingStep("Read data and add to neighborhood sorters", M * N * sizeof(float));
     time_chunk_infos = get_time_chunk_infos(M, N, neighborhood_batches.count(), 1);
-    qDebug().noquote() << QString("Number of time chunks is: %1").arg(time_chunk_infos.count());
+    // qDebug().noquote() << QString("Number of time chunks is: %1").arg(time_chunk_infos.count());
     for (bigint i = 0; i < time_chunk_infos.count(); i++) {
         TimeChunkInfo TCI = time_chunk_infos[i];
         Mda32 time_chunk;
@@ -206,7 +206,7 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
                     m = neighborhoods[k]; //I don't know why this needs to be in a critical section
                 }
                 //extract_channels(neighborhood_time_chunk, time_chunk, neighborhood_channels[m]);
-                neighborhood_sorters[m]->addTimeChunk(TCI.t1, time_chunk, neighborhood_channels[m], TCI.t_padding, TCI.t_padding);
+                neighborhood_sorters[m]->addTimeChunk(TCI.t1, time_chunk, neighborhood_channels[m], TCI.t_padding);
 #pragma omp critical(a1)
                 {
                     bytes0 += time_chunk.N2() * sizeof(float);
@@ -263,7 +263,11 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
     PR.endProcessingStep();
 
     qDeleteAll(neighborhood_sorters);
-
+    int num_clusters = MLCompute::max(labels);
+    if (num_clusters <= M) {
+        qDebug().noquote() << QString("Only find %1 clusters, the result will be inaccurate, aborting...").arg(num_clusters);
+        abort();
+    }
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
     PR.startProcessingStep("Compute global templates", M * N * sizeof(float));
     time_chunk_infos = get_time_chunk_infos(M, N, 1, 1);
@@ -287,16 +291,17 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
 	
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
     PR.startProcessingStep("Discard noisy and redundant clusters");
-    {
-     
-        Discard_noisy_clusters_opts oo;
-        oo.clip_size = opts.clip_size;
-        oo.input_clip_size = opts.input_clip_size; 
-        oo.noise_detect_time = opts.noise_detect_time;
-        oo.detect_time_discard_thresh = opts.detect_time_discard_thresh;
-        oo.noise_overlap_discard_thresh = opts.noise_overlap_discard_thresh;
-        discard_noisy_clusters(times, labels, central_channels, templates, X, oo);  
-    
+    {   
+        if (opts.discard_noisy_clusters) {
+            Discard_noisy_clusters_opts oo;
+            oo.clip_size = opts.clip_size;
+            oo.input_clip_size = opts.input_clip_size; 
+            oo.noise_detect_time = opts.noise_detect_time;
+            oo.detect_time_discard_thresh = opts.detect_time_discard_thresh;
+            oo.noise_overlap_discard_thresh = opts.noise_overlap_discard_thresh;
+            discard_noisy_clusters(times, labels, central_channels, templates, X, oo);  
+        }
+ 
         if (opts.merge_across_channels) {
             Merge_across_channels_opts ooo;
             ooo.clip_size = opts.clip_size;
@@ -340,8 +345,7 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Create and write firings output
-    PR.startProcessingStep("Create and write firings output");
+    //PR.startProcessingStep("Create and write firings output");
     {
         bigint L = times.count();
         Mda firings(3, L);
@@ -353,10 +357,8 @@ bool p_mountainsort3(QString timeseries, QString geom, QString firings_out, QStr
 
         firings.write64(firings_out);
     }
-    PR.endProcessingStep();
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////////////
-    PR.printSummaryText();
+    //PR.endProcessingStep();
+    //PR.printSummaryText();
 
     return true;
 }

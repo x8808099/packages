@@ -55,14 +55,14 @@ bool should_use_template(const Mda32& template0, Consolidate_clusters_opts opts)
 
     bigint M = template0.N1();
     bigint T = template0.N2();
-    bigint Tmid = (int)((T + 1) / 2) - 6;
+    bigint Tmid = (int)((T + 1) / 2) - 1 - opts.shifting;
 
     double abs_peak_on_central_channel = 0;
     bigint abs_peak_t_on_central_channel = Tmid;
     {
         for (bigint t = 0; t < T; t++) {
             double val = template0.value(central_channel, t);
-            if (val > abs_peak_on_central_channel) {            //  fabs(val)
+            if (val > abs_peak_on_central_channel) {
                 abs_peak_on_central_channel = val;
                 abs_peak_t_on_central_channel = t;
             }
@@ -83,10 +83,10 @@ bool should_use_template(const Mda32& template0, Consolidate_clusters_opts opts)
     {
         if (abs_peak_on_central_channel < abs_peak * opts.consolidation_factor)
             return false;
-        if (fabs(abs_peak_t_on_central_channel - Tmid) > peak_location_tolerance)
+        // if (fabs(abs_peak_t_on_central_channel - Tmid) > peak_location_tolerance)
+            // return false;
+        if (fabs(abs_peak_t - Tmid) > peak_location_tolerance)
             return false;
-        // if (fabs(abs_peak_t - Tmid) > peak_location_tolerance)
-          //  return false;
     }
     return true;
 }
