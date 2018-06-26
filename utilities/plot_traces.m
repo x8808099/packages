@@ -1,4 +1,5 @@
-%% compare whiten data with no-whiten
+%% compare whiten data
+
 %%
 %dX=1:24;
 %dX=[(1:24) 60:120];
@@ -21,9 +22,11 @@ dtah(:,dX,:)=[];
 dtah = reshape(dtah,4,[]);
 dtas = [dtaw;[dtah,dtah]];
 %%
-sp = 24;
+dtaw = readmda('pre.mda');
+dtas = [dtaw;dtac];
+
 spl = sl + sp;
-events=12; morevent = 200;
+events=20; morevent = 4;
 X=(1:events*spl) + morevent*spl; x_lim=[X(1)-1,X(end)];
 Nplot=size(dtas,1);
 
@@ -35,8 +38,8 @@ for i = 1:Nplot
     hold on
     plot(X,dtas(i,X))
     if i>4
-        plot(x_lim,[2.5 2.5],'m')
-        ylim([-3 6])
+        %plot(x_lim,[2.5 2.5],'m')
+        %ylim([-3 6])
     else
         plot(x_lim,[2.5 2.5],'m')
         ylim([-3 6])

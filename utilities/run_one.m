@@ -1,100 +1,109 @@
+clear
 cd('~/ss')
 addpath(genpath(pwd))
 
-doTetrodeData=1;
-doEEG=0; doTetrodeTS=0; doPosition=0; doSync=0; doInput=0;  
-drIn = 'SpikeSort/'; 
-nchs=4;
-%%
-bpf_name = '0615R16BC-cl.bpf';
+%mat_name = 'M9_052214_blackbox-cl.mat';
+mat_name = 'M16_2.mat';
+% mat_name = '0615R16BC-cl.mat';
 
-[tetrodeData,tetrodeTimestamp,tetrodeUnit,tetrodeChannel,sl,sample_rate] = ...
-    bpf2mat_py([drIn bpf_name],doEEG,doTetrodeData,doTetrodeTS,doPosition,doSync,doInput);    
-%%
-bpf_name = 'M16_2.bpf';
-load(['/media/psf/PH/DATA/' bpf_name(1:end-4) '.mat'],'');
+load(['/media/psf/PH/DATA/' mat_name]);
 Chs = unique(tetrodeChannel)
-%%
-sl = tetrodeSamplesPerBlock; sp=24;
-iCh = 1;
-det_itv = 30;
-clip_size = 60;
-noth = 10; % noise_overlap_threshold 
-csof = 99;
-merge_or_not = 'true';
-whiten_or_not = 'true';
-det_th = 2.5;
 
-Chs = unique(tetrodeChannel)
+sl = tetrodeSamplesPerBlock; % sample length
+nchs=4; % tetrode
 Data = reshape(tetrodeData,nchs,sl,[]);
+
+%% - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+iCh = 1;
+sp=24; % padding
+
 idxs = tetrodeChannel==Chs(iCh);
-U = tetrodeUnit(idxs); 
-T = tetrodeTimestamp(idxs); 
-[min(diff(T)) unique(U')]
 dtac = reshape(Data(:,:,idxs),nchs,[]);
+U = tetrodeUnit(idxs); unique(U') % T = tetrodeTimestamp(idxs); min(diff(T)) 
+dtac = dtac - mean(dtac,2); % subtract mean before padding with zeros
+dta = reshape(dtac,nchs,sl,[]); dta = cat(2,zeros(nchs,sp,size(dta,3)),dta);
+dtac = reshape(dta,nchs,[]); dtac = [dtac,zeros(nchs,sp)];
+%dtac = [dtac(2:4,:);dtac(1,:)]; % actually affect the result...
+run_count = 1;
+% - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-%C = dtac*dtac'/size(dtac,2); [V,D] = eig(C); W = V/sqrt(D)*V'   
+tic
+clip_size = 64; clip_shift = 8;
+input_clip_size = sp + sl;
+det_th = 2.8; % event detection threshold in stdev
+det_itv = 30; % event detection blocking period
 
-dtac = dtac-mean(dtac,2);
-dta = reshape(dtac,nchs,sl,[]);
-dta = cat(2,zeros(nchs,24,size(dta,3)),dta);
-dtac = reshape(dta,nchs,[]);
+% For discarding noisy clusters
+ndt = sp + 12 + det_itv; % noisy detection time
+td_th = 0.5; % allowed ratio of timestamps after ndt
+nd_th = 0.05; % noise overlap threshold
+oe_th = 0.5; % overlapping events fraction threshold
 
-name_ = [bpf_name(1:end-4),'_s',num2str(clip_size),'i',num2str(det_itv),...
+discard_or_not = 'true';
+merge_or_not = 'true';
+fit_or_not = merge_or_not;
+whitening = 'true'; %also need change th
+extract_features = 0; 
+
+name_ = [mat_name(1:end-4),'_s',num2str(clip_size),'i',num2str(det_itv),...
     't',num2str(det_th),'C',num2str(iCh),'_',num2str(max(U),'%02d')];
 firing_name = '/media/psf/PH/firing.mda';
-metric_name = ['/media/psf/PH/M_' name_ '.json'];
+metric_name = '/media/psf/PH/metric.json';
 
+% C = dtac*dtac'/size(dtac,2); [V,D] = eig(C); W = V/sqrt(D)*V'   
 % pre-whitening
-% dtah = reshape(dtac,4,sl,[]);
-% dtah(:,1:48,:)=[];
-% dtah = reshape(dtah,4,[]);
-% nn = size(dtah,2);
-% C = dtah*dtah'/nn;
+% dX = [1:24, 72:120];
+% dta(:,dX,:)=[];
+% dta = reshape(dta,4,[]);
+% nn = size(dta,2);
+% C = dta*dta'/nn;
 % [V,D] = eig(C);
 % W = V/sqrt(D)*V';
 % dtac = W*dtac;
-%%
-mda_name = 'ss.mda'; 
-writemda(dtac,mda_name,'float32')
 
-system(['mlp-run ~/mountainlab/mountainsort3.mlp sort'...
+mda_name = 'ss8.mda'; 
+writemda(dtac,mda_name,'float32');
+
+command_sort = ['mlp-run'...
+    ' ~/mountainlab/mountainsort3.mlp sort'...
+    ' --clip_shift=' num2str(clip_shift)...
     ' --clip_size=' num2str(clip_size)...
+    ' --clip_padding=' num2str(sp)...
     ' --detect_interval=' num2str(det_itv)...
-    ' --noise_overlap_thresh=' num2str(noth/100)...
     ' --detect_threshold=' num2str(det_th)...
-    ' --consolidation_factor=' num2str(csof/100)...
-    ' --filt=' mda_name...
-    ' --pre_out=/media/psf/PH/pre.mda'...
-    ' --label_map_out=/media/psf/PH/lmap.mda'... % ' --features_out=fets.mda'...
-    ' --cluster_metrics_out=' metric_name...
-    ' --whiten=' whiten_or_not...
+    ' --noise_detect_time=' num2str(ndt)...
+    ' --detect_time_discard_thresh=' num2str(td_th)...
+    ' --noise_overlap_discard_thresh=' num2str(nd_th)...
+    ' --input_clip_size=' num2str(input_clip_size)...
+    ' --event_fraction_threshold=' num2str(oe_th)...
+    ' --consolidation_factor=0.95'...
+    ' --label_map_out=/media/psf/PH/lmap.mda'... 
+    ' --whiten=' whitening...
+    ' --discard_noisy_clusters=' discard_or_not...
     ' --merge_across_channels=' merge_or_not...
-    ' --firings_out=' firing_name]);
-command = ['mountainview'...
-    ' --raw=/media/psf/PH/pre.mda'...
-    ' --samplerate=48000'... 
-    ' --cluster_metrics=' metric_name...
-    ' --firings=' firing_name];
-clipboard('copy',command)
-%%
-% /home/parallels/ss/
-command = ['mountainview'...
-    ' --raw=/media/psf/PH/pre.mda'...
-    ' --samplerate=48000'... 
-    ' --cluster_metrics=' metric_name...
-    ' --firings=' firing_name];
-clipboard('copy',command)
+    ' --fit_stage=' fit_or_not...
+    ' --cluster_metrics_out=' metric_name...
+    ' --firings_out=' firing_name];
 
-%%
-lmap=readmda('/media/psf/PH/lmap.mda');
+if run_count == 1
+    command_sort = [command_sort ' --filt=' mda_name ' --pre_out=pre.mda'];
+else
+    command_sort = [command_sort ' --pre=pre.mda'];
+end
+run_count = run_count + 1;    
+
+if (extract_features)
+    command_sort = [command_sort ' --extract_fets=true --features_out=fets.mda'];
+    system(command_sort);
+
+lmap = readmda('/media/psf/PH/lmap.mda');
 fets = readmda('fets.mda');
 F = readmda(firing_name);
 keepCluster = zeros(1,size(F,2));
-    for i = 1:size(lmap,1)
-        keepCluster(F(3,:)==lmap(i,2)) = lmap(i,1);
-    end
-
+for i = 1:size(lmap,1)
+    keepCluster(F(3,:)==lmap(i,2)) = lmap(i,1);
+end
 Nkeep = sum(unique(keepCluster)>0);
 
 [nj,ni] = size(fets);
@@ -110,3 +119,16 @@ end
 fclose(fid);
 isoi_name = ['I_' name_ '_' num2str(Nkeep,'%02d') '.txt'];
 system(['isoi fets.txt /media/psf/PH/Is/' isoi_name]);
+
+else
+    system(command_sort);
+end
+
+command_view = ['mountainview'...
+    ' --raw=/home/parallels/ss/pre.mda'...
+    ' --samplerate=48000'... 
+    ' --cluster_metrics=' metric_name...
+    ' --firings=' firing_name];
+clipboard('copy',command_view)
+
+toc
