@@ -6,12 +6,11 @@ doEEG=0; doTetrodeTS=0; doPosition=0; doSync=0; doInput=0;
 drIn = 'SpikeSort/'; 
 nchs=4;
 %%
-bpf_name = '0615R16BC-cl.bpf';
+bpf_name = 'M16_2.bpf';
 
 [tetrodeData,tetrodeTimestamp,tetrodeUnit,tetrodeChannel,sl,sample_rate] = ...
     bpf2mat_py([drIn bpf_name],doEEG,doTetrodeData,doTetrodeTS,doPosition,doSync,doInput);    
 %%
-bpf_name = 'M16_2.bpf';
 load(['/media/psf/PH/DATA/' bpf_name(1:end-4) '.mat'],'');
 Chs = unique(tetrodeChannel)
 %%
